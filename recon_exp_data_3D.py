@@ -20,6 +20,8 @@ from dataset import *
 import matplotlib.pyplot as plt
 from prettytable import PrettyTable
 
+import matplotlib.pyplot as plt
+
 def TV(o):
     nb_voxel = (o.shape[0]) * (o.shape[1])
     sx,sy= grads(o)
@@ -64,17 +66,10 @@ def grads(o):
 DEVICE = 'cuda'
 
 if __name__ == "__main__":
-
-
-    bDynamic = False
-
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--root_dir', default='.', type=str)
-    if bDynamic:
-        parser.add_argument('--data_dir', default='DATA_DIR/NeuWS_experimental_data-selected/dynamic_objects_dynamic_aberrations/owlStamp_onionSkin/Zernike_SLM_data/', type=str)
-    else:
-        parser.add_argument('--data_dir',default='DATA_DIR/static_objects_static_aberrations/dog_esophagus_0.5diffuser/Zernike_SLM_data/',type=str)
+    parser.add_argument('--data_dir', default='DATA_DIR/static_objects_static_aberrations/dog_esophagus_0.5diffuser/Zernike_SLM_data/', type=str)
+    # parser.add_argument('--data_dir', default='DATA_DIR/NeuWS_experimental_data-selected/dynamic_objects_dynamic_aberrations/owlStamp_onionSkin/Zernike_SLM_data/', type=str)
     parser.add_argument('--scene_name', default='dog_esophagus_0.5diffuser', type=str)
     parser.add_argument('--num_epochs', default=1000, type=int)
     parser.add_argument('--num_t', default=100, type=int)
@@ -111,15 +106,14 @@ if __name__ == "__main__":
     ############
     # Training preparations
     dset = BatchDataset(data_dir, num=args.num_t, im_prefix=args.im_prefix, max_intensity=args.max_intensity, zero_freq=args.zero_freq)
+
+    dset.load_in_cache()
+
     x_batches = torch.cat(dset.xs, axis=0).unsqueeze(1).to(DEVICE)
     y_batches = torch.stack(dset.ys, axis=0).to(DEVICE)
 
-    if bDynamic:
-        args.dynamic_scene = True
-        args.static_phase = False
-    else:
-        args.dynamic_scene = False
-        args.static_phase = True
+    args.dynamic_scene = False
+    args.static_phase = True
 
     print('x_batches', x_batches.shape)
     print('y_batches', y_batches.shape)
@@ -170,40 +164,40 @@ if __name__ == "__main__":
     #     plt.savefig(f"./tmp/data_{k}.tif")
     #     plt.close()
 
-    # t1 = net.g_im.net1.data
-    # t2 = net.g_im.net2.data
-    # t3 = net.g_im.net3.data
-    # t4 = net.g_im.net4.data
+    t1 = net.g_im.net1.data
+    t2 = net.g_im.net2.data
+    t3 = net.g_im.net3.data
+    t4 = net.g_im.net4.data
 
 
-    # for k in range(0,32):
-    #     fig = plt.figure(figsize=(12, 12))
-    #     ax = fig.add_subplot(2, 2, 1)
-    #     im = t1[:,:,k]
-    #     im = im.detach().cpu().numpy()
-    #     plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
-    #     plt.colorbar()
-    #     plt.title('p1')
-    #     ax = fig.add_subplot(2, 2, 2)
-    #     im = t2[:,:,k]
-    #     im = im.detach().cpu().numpy()
-    #     plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
-    #     plt.colorbar()
-    #     plt.title('p2')
-    #     ax = fig.add_subplot(2, 2, 3)
-    #     im = t3[:,:,k]
-    #     im = im.detach().cpu().numpy()
-    #     plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
-    #     plt.colorbar()
-    #     plt.title('p3')
-    #     ax = fig.add_subplot(2, 2, 4)
-    #     im = t4[:,:,k]
-    #     im = im.detach().cpu().numpy()
-    #     plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
-    #     plt.colorbar()
-    #     plt.title('p4')
-    #     plt.savefig(f"./tmp/data_{k}.tif")
-    #     plt.close()
+    for k in range(0,32):
+        fig = plt.figure(figsize=(12, 12))
+        ax = fig.add_subplot(2, 2, 1)
+        im = t1[:,:,k]
+        im = im.detach().cpu().numpy()
+        plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
+        plt.colorbar()
+        plt.title('p1')
+        ax = fig.add_subplot(2, 2, 2)
+        im = t2[:,:,k]
+        im = im.detach().cpu().numpy()
+        plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
+        plt.colorbar()
+        plt.title('p2')
+        ax = fig.add_subplot(2, 2, 3)
+        im = t3[:,:,k]
+        im = im.detach().cpu().numpy()
+        plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
+        plt.colorbar()
+        plt.title('p3')
+        ax = fig.add_subplot(2, 2, 4)
+        im = t4[:,:,k]
+        im = im.detach().cpu().numpy()
+        plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
+        plt.colorbar()
+        plt.title('p4')
+        plt.savefig(f"./tmp/data_{k}.tif")
+        plt.close()
 
 
     for epoch in t:

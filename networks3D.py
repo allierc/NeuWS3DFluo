@@ -68,7 +68,8 @@ class G_FeatureTensor(nn.Module):
         x_mode, y_mode = x_dim // ds_factor, y_dim // ds_factor
         self.num_feats = num_feats
 
-        self.data = nn.Parameter( 0.1 * torch.randn((x_mode, y_mode, num_feats)), requires_grad=True)
+        self.data = nn.Parameter(
+            0.1 * torch.randn((x_mode, y_mode, num_feats)), requires_grad=True)
 
         half_dx, half_dy =  0.5 / x_dim, 0.5 / y_dim
         xs = torch.linspace(half_dx, 1-half_dx, x_dim)
@@ -336,12 +337,6 @@ class TemporalZernNet(nn.Module):
         _kernel = fftshift(fft2(sim_g * x_batch, norm="forward"), dim=[-2, -1]).abs() ** 2
         _kernel = _kernel / torch.sum(_kernel, dim=[-2, -1], keepdim=True)
         _kernel = _kernel.flip(2).flip(3)
-
-
-        # _kernel = fftshift(fft2(x_batch, norm="forward"), dim=[-2, -1]).abs() ** 2
-        # _kernel = _kernel / torch.sum(_kernel, dim=[-2, -1], keepdim=True)
-        # _kernel = _kernel.flip(2).flip(3)
-        # _kernel = torch.squeeze(_kernel[0])
 
         if self.use_FFT:
             y = fft_2xPad_Conv2D(I_est, _kernel).squeeze()
