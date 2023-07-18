@@ -24,7 +24,7 @@ from tifffile import imread
 import torch.nn.functional as f
 from torch.fft import fft2, fftshift
 
-from generator_data_3D import bpmPytorch
+from solve_data_3D import bpmPytorch
 
 # python3 ./recon_exp_data.py --static_phase True --num_t 100 --data_dir ./DATA_DIR/static_objects_static_aberrations/dog_esophagus_0.5diffuser/Zernike_SLM_data  --scene_name dog_esophagus_0.5diffuser --phs_layers 4 --num_epochs 1000 --save_per_fram
 
@@ -35,6 +35,7 @@ DEVICE = 'cuda'
 if __name__ == "__main__":
 
     PSF_size = 256
+    num_polynomials = 48
 
 
     model_config = {'nm': 1.33,
@@ -46,29 +47,44 @@ if __name__ == "__main__":
                     'padding': False,
                     'dtype': torch.float32,
                     'device': 'cuda:0',
+                    'bAber': False,
+                    'bFit': False,
+                    'num_feats': 4,
                     'out_path': "./Recons3D/"}
 
-    bpm = bpmPytorch(model_config, coeff_RI=1)
+    bpm = bpmPytorch(model_config)
 
-    z_in = torch.abs(torch.randn(256,28,device=DEVICE))
+    z_in = torch.abs(torch.randn(256,num_polynomials,device=DEVICE))
     z_in = f.normalize(z_in, p=1, dim=1)
     z_in = z_in.repeat(256, 256, 1, 1).permute(2,3,0,1)
-    basis = compute_zernike_basis(num_polynomials=28,field_res=(PSF_size, PSF_size)).unsqueeze(0).repeat(256, 1, 1, 1)
+    basis = compute_zernike_basis(num_polynomials=num_polynomials,field_res=(PSF_size, PSF_size)).unsqueeze(0).repeat(256, 1, 1, 1)
     basis = basis.to(DEVICE)
     out=basis*z_in
-    out=torch.sum(out, dim=1)
+    out=torch.sum(out, dim=1)*torch.pi
 
     out_cpx = torch.zeros(256, 256, 256, dtype=torch.cfloat)
     t = fftshift(bpm.pupil)
 
     for k in range(256):
-        tt = t * torch.exp(torch.mul(out[k, :, :], 1j))
+        tt =  torch.exp(torch.mul(torch.abs(t)*out[k, :, :], 20j))
         tt=fftshift(tt)
         out_cpx[k, :, :]=tt
 
     torch.save(out_cpx,'./Pics_input/aberration.pt')
+    imwrite(f'./Pics_input/aberration.tif', torch.angle(out_cpx).detach().cpu().numpy())
+
+    nmean = torch.mean(out, axis=0)
+    nstd = torch.std(out, axis=0)
 
     plt.ion()
+    plt.imshow(out[10, :, :].detach().cpu().numpy())
+    plt.colorbar()
+
+    plt.ion()
+    plt.imshow(torch.angle(out_cpx[20, :, :]).detach().cpu().numpy())
+    plt.colorbar()
+
+    plt.imshow(torch.angle(out_cpx[10, :, :]).detach().cpu().numpy())
     plt.imshow(out[10, :, :].detach().cpu().numpy())
     plt.imshow(torch.abs(bpm.pupil).detach().cpu().numpy())
     plt.imshow(torch.angle(bpm.pupil).detach().cpu().numpy())
@@ -78,4 +94,4 @@ if __name__ == "__main__":
 
     out=torch.angle(out_cpx)
 
-    imwrite(f'./Pics_input/aberration.tif', out.detach().cpu().numpy())
+

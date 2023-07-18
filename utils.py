@@ -134,7 +134,7 @@ def crop_image(field, target_shape, pytorch=True, stacked_complex=True):
 
 def compute_zernike_basis(num_polynomials, field_res):
     zernike_diam = int(np.ceil(np.sqrt(field_res[0]**2 + field_res[1]**2)))
-    zernike = zernikeArray(num_polynomials, zernike_diam)
+    zernike = zernikeArray(J=num_polynomials, N=zernike_diam, norm="rms")
     zernike = crop_image(zernike, field_res, pytorch=False)
     zernike = torch.FloatTensor(zernike)
     return zernike

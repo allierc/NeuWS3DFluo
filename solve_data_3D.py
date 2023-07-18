@@ -17,7 +17,8 @@ import json
 from tifffile import imwrite
 from tifffile import imread
 import logging
-
+from shutil import copyfile
+import glob
 
 class G_Renderer(nn.Module):
     def __init__(self, in_dim, hidden_dim, num_layers, out_dim, device):
@@ -37,7 +38,9 @@ class G_Renderer(nn.Module):
         self.net = nn.Sequential(*layers)
 
     def forward(self, x):
-        out = self.net(x)
+
+        out = torch.clamp(self.net(x),min=0,max=1)
+
         return out
 
         # table = PrettyTable(["Modules", "Parameters"])
@@ -51,10 +54,6 @@ class G_Renderer(nn.Module):
         # print(table)
         # print(f"Total Trainable Params: {total_params}")
 
-
-
-
-
 class bpmPytorch(torch.nn.Module):
 
     def __init__(self, model_config):
@@ -67,14 +66,13 @@ class bpmPytorch(torch.nn.Module):
         self.dx = self.mc['dx']
         self.dz = self.mc['dz']
         self.lbda = self.mc['lbda']
-
         self.volume = self.mc['volume']
         self.padding = self.mc['padding']
-
         self.device = self.mc['device']
         self.dtype = self.mc['dtype']
-
+        self.bAber = self.mc['bAber']
         self.num_feats = self.mc['num_feats']
+        self.bFit = self.mc['bFit']
 
         self.renderer = G_Renderer(in_dim=self.num_feats, hidden_dim=self.num_feats, num_layers=2, out_dim=2, device=self.device)
 
@@ -99,7 +97,7 @@ class bpmPytorch(torch.nn.Module):
             self.Ny = self.volume[1]
             self.Nz = self.volume[2]
 
-            self.data = nn.Parameter(0.1 * torch.randn((self.Nx, self.Ny, self.Nz, self.num_feats), device=self.device, requires_grad=True))
+            self.data = nn.Parameter(torch.zeros((self.Nx, self.Ny, self.Nz, self.num_feats), device=self.device, requires_grad=True))
 
             self.Npixels = self.Nx * self.Ny
             self.field_shape = (self.Nx, self.Ny)
@@ -134,6 +132,9 @@ class bpmPytorch(torch.nn.Module):
             # fluo_obj = np.moveaxis(fluo_obj, 0, -1)
             # self.fluo = torch.tensor(fluo_obj, device=self.device, dtype=self.dtype, requires_grad=True)
             # self.fluo = torch.sqrt(self.fluo)
+
+        self.dn0_layers = self.dn0.unbind(dim=2)
+        self.fluo_layers = self.fluo.unbind(dim=2)
 
         N_x = np.arange(-self.Nx / 2 + 0, self.Nx / 2 - 0)
         N_y = np.arange(-self.Ny / 2 + 0, self.Ny / 2 - 0)
@@ -174,32 +175,34 @@ class bpmPytorch(torch.nn.Module):
 
         coef=torch.tensor(self.dz*k0*1.j, dtype=torch.cfloat, requires_grad=False, device=self.device)
 
-        sample=self.renderer(self.data)
 
-        self.dn0_layers = sample[:,:,:,0].unbind(dim=2)
-        self.fluo_layers = sample[:,:,:,1].unbind(dim=2)
+        if self.bFit:
+            sample=self.renderer(self.data)
+            self.dn0_layers = sample[:,:,:,0].unbind(dim=2)
+            self.fluo_layers = sample[:,:,:,1].unbind(dim=2)
 
         phi_layers=phi.unbind(dim=2)
 
         for i in range(plane,self.Nz):
-            depha0 = torch.mul(self.dn0_layers[i], coef)
-            depha = torch.mul(self.field, torch.exp(depha0))
+            self.field = torch.mul(self.field, torch.exp(torch.mul(self.dn0_layers[i], coef)))
             if (i==plane):
                 S = torch.mul(self.fluo_layers[i],torch.exp(phi_layers[i]*1.j))
                 S = torch.fft.ifftn(torch.mul(torch.fft.fftn(S),self.C))
-                self.field = torch.fft.ifftn(torch.mul(torch.fft.fftn(depha+S),self.Hz1))
+                self.field = torch.fft.ifftn(torch.mul(torch.fft.fftn(self.field+S),self.Hz1))
             else:
-                self.field = torch.fft.ifftn(torch.mul(torch.fft.fftn(depha), self.Hz1))
+                self.field = torch.fft.ifftn(torch.mul(torch.fft.fftn(self.field), self.Hz1))
 
-        self.field = torch.mul(self.field, torch.exp(self.aber_layers [plane] ))
         self.field = torch.fft.fftn(self.field)
 
         for i in range(plane,self.Nz):
             self.field = torch.mul(self.field,self.Hz2)
 
-        I=torch.abs(torch.fft.ifftn(self.field * self.pupil)) ** 2
+        if self.bAber:
+            I = torch.abs(torch.fft.ifftn(self.field * self.aber_layers[plane])) ** 2
+        else:
+            I = torch.abs(torch.fft.ifftn(self.field * self.pupil)) ** 2
 
-        return  I
+        return I
 
     def FresnelPropag(self, dz=0, fdir=[0, 0]):
 
@@ -214,6 +217,7 @@ class bpmPytorch(torch.nn.Module):
 if __name__ == '__main__':
 
     print('Init ...')
+    torch.cuda.empty_cache()
 
     model_config = {'nm': 1.33,
                     'na': 1.0556,
@@ -224,11 +228,25 @@ if __name__ == '__main__':
                     'padding': False,
                     'dtype': torch.float32,
                     'device': 'cuda:0',
-                    'num_feats': 8,
+                    'num_feats': 4,
+                    'bAber': True,
+                    'bFit': True,
                     'out_path': "./Recons3D/"}
 
-    coeff_RI = 0
-    Niter = 10
+    flist = ['Recons3D']
+    for folder in flist:
+        files = glob.glob(f"/home/allierc@hhmi.org/Desktop/Py/NeuWS3D/{folder}/*")
+        for f in files:
+            os.remove(f)
+
+    ntry=1
+
+    l_dir = os.path.join('.', 'log')
+    log_dir = os.path.join(l_dir, 'try_{}'.format(ntry))
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(os.path.join(log_dir, 'models'), exist_ok=True)
+    os.makedirs(os.path.join(log_dir, 'data', 'val_outputs'), exist_ok=True)
+    copyfile(os.path.realpath(__file__), os.path.join(log_dir, 'training_code.py'))
 
     torch.cuda.empty_cache()
     bpm = bpmPytorch(model_config)
@@ -237,20 +255,32 @@ if __name__ == '__main__':
     # bpm.dn0 = nn.Parameter(0.0001*torch.rand([bpm.Nx, bpm.Ny, bpm.Nz], dtype=torch.float32, device=bpm.device, requires_grad=True))
     # bpm.fluo = nn.Parameter(0.1 * torch.rand([bpm.Nx, bpm.Ny, bpm.Nz], dtype=torch.float32, device=bpm.device, requires_grad=True))
 
-    raw_data = io.imread('./Pics_input/input_aberration_null.tif')
+    raw_data = io.imread('./Pics_input/input_aberration.tif')
     raw_data = torch.tensor(raw_data, device=bpm.device, dtype=bpm.dtype, requires_grad=False)
 
-    optimizer = torch.optim.Adam(bpm.parameters(), lr=1E-5)
+    t=torch.load('./Pics_input/aberration.pt')
+    bpm.aber=t.to('cuda:0')
+    bpm.aber_layers = bpm.aber.unbind(dim=0)
 
     phiL = torch.rand([bpm.Nx, bpm.Ny, 1000], dtype=torch.float32, requires_grad=False, device=bpm.device) * 2 * np.pi
 
+    optimizer = torch.optim.Adam(bpm.parameters(), lr=1E-3)
     optimizer.zero_grad()
 
-    loss_list=[]
+    Niter = 5
+    batch = 4
+
+    best_loss = np.inf
 
     for epoch in range(10000):
 
-        for plane in range(255,-1,-1):
+        loss_list = []
+        loss = 0
+
+        n_grad=0
+        plane_list=np.random.permutation(bpm.Nz)
+
+        for plane in tqdm(plane_list):
 
             I = torch.ones(bpm.Nx, bpm.Ny, dtype=torch.float32, requires_grad=False, device=bpm.device)
             for w in range(0, Niter):
@@ -259,23 +289,40 @@ if __name__ == '__main__':
 
             I = I / Niter
 
-            loss = (I-raw_data[plane]).norm(2)
-            loss_list.append(loss.item())
+            step_loss = (I-raw_data[plane]).norm(2) + 0*I.norm(1) * 1E-4
+            loss_list.append(step_loss.item())
+            loss +=step_loss
 
-            if (plane%4==0):
+            if (n_grad%batch==0):
                 loss.backward()
                 optimizer.step()
                 optimizer.zero_grad()
-                # print(f"     plane: {plane} Loss: {np.round(loss.item(), 4)}")
+                # print(f"     plane: {plane} Loss: {np.round(loss.item()/batch, 4)}")
+                loss=0
+
+            n_grad += 1
 
         print(f"Epoch: {epoch} Loss: {np.round(np.mean(loss_list), 4)}")
 
         if (epoch%10==0):
-            with torch.no_grad():
-                sample=bpm.renderer(bpm.data)
-            obj = sample[:,:,:,0].cpu().detach().numpy().astype('float32')
-            imwrite(f'./Recons3D/dn_recons_{epoch}.tif', np.moveaxis(obj, -1, 0))
-            obj = sample[:,:,:,1].cpu().detach().numpy().astype('float32')
-            imwrite(f'./Recons3D/fluo_recons_{epoch}.tif', np.moveaxis(obj, -1, 0))
+
+            if (np.mean(loss_list) < best_loss):
+                torch.save({'model_state_dict': bpm.state_dict(), 'optimizer_state_dict': optimizer.state_dict()},os.path.join(log_dir, 'models', 'best_model.pt'))
+                with torch.no_grad():
+                    sample = bpm.renderer(bpm.data)
+                # obj = sample[:, :, :, 0].cpu().detach().numpy().astype('float32')
+                # imwrite(f'./Recons3D/dn_recons_{epoch}.tif', np.moveaxis(obj, -1, 0))
+                obj = sample[:, :, :, 1].cpu().detach().numpy().astype('float32')
+                imwrite(f'./Recons3D/fluo_recons_{epoch}.tif', np.moveaxis(obj, -1, 0))
+
+    # plt.ion()
+    # plt.imshow(I.detach().cpu().numpy())
+    # plt.imshow(torch.abs(bpm.pupil).detach().cpu().numpy())
+    # plt.imshow(self.dn0_layers[plane].detach().cpu().numpy())
+    # plt.imshow(self.fluo_layers[plane].detach().cpu().numpy())
+    # plt.imshow(torch.abs(self.aber_layers[plane]).detach().cpu().numpy())
+    # plt.imshow(torch.angle(self.aber_layers[plane]).detach().cpu().numpy())
+
+
 
 
