@@ -38,10 +38,6 @@ class bpmPytorch(torch.nn.Module):
         self.device = self.mc['device']
         self.dtype = self.mc['dtype']
 
-        self.fluo_data_path = self.mc['fluo_data_path']
-        self.data_path = self.mc['data_path']
-        self.out_path = self.mc['out_path']
-
         if self.padding:
             self.Nx = self.volume[0] *2
             self.Ny = self.volume[1] *2
@@ -118,7 +114,7 @@ class bpmPytorch(torch.nn.Module):
 
         self.dn0_layers = self.dn0.unbind(dim=2)
         self.fluo_layers = self.fluo.unbind(dim=2)
-        self.aber_layers = self.aber.unbind(dim=2)
+        self.aber_layers = self.aber.unbind(dim=0)
 
         phi_layers=phi.unbind(dim=2)
 
@@ -132,13 +128,22 @@ class bpmPytorch(torch.nn.Module):
             else:
                 self.field = torch.fft.ifftn(torch.mul(torch.fft.fftn(depha), self.Hz1))
 
-        self.field = torch.mul(self.field, torch.exp(self.aber_layers [plane] ))
         self.field = torch.fft.fftn(self.field)
 
         for i in range(plane,self.Nz):
             self.field = torch.mul(self.field,self.Hz2)
 
-        I=torch.abs(torch.fft.ifftn(self.field * self.pupil)) ** 2
+        # plt.ion()
+        # plt.imshow(torch.abs(bpm.pupil).detach().cpu().numpy())
+        # plt.imshow(self.dn0_layers[plane].detach().cpu().numpy())
+        # plt.imshow(self.fluo_layers[plane].detach().cpu().numpy())
+        # plt.imshow(torch.abs(self.aber_layers[plane]).detach().cpu().numpy())
+        # plt.imshow(torch.angle(self.aber_layers[plane]).detach().cpu().numpy())
+
+        if bAber:
+            I = torch.abs(torch.fft.ifftn(self.field * self.aber_layers[plane])) ** 2
+        else:
+            I=torch.abs(torch.fft.ifftn(self.field * self.pupil)) ** 2
 
         return  I
 
@@ -165,9 +170,6 @@ if __name__ == '__main__':
                     'padding': False,
                     'dtype': torch.float32,
                     'device': 'cuda:0',
-                    'data_path': "./Pics_input/KidneyL_30_2.tif",
-                    'fluo_data_path': "./Pics_input/Fluo_6_30.tif",
-                    'raw_data_path': "./Pics_input/",
                     'out_path': "./Recons3D/"}
 
     coeff_RI = 0
@@ -190,6 +192,8 @@ if __name__ == '__main__':
     new_obj = np.moveaxis(new_obj, 0, -1)
     bpm.dn0 = torch.tensor(new_obj, device=bpm.device, dtype=bpm.dtype, requires_grad=False)
 
+    bAber = False
+
     # Istack = np.zeros([bpm.Nx, bpm.Ny, bpm.Nz])
     #
     # for plane in tqdm(range(0, bpm.Nz)):
@@ -208,13 +212,19 @@ if __name__ == '__main__':
     # tmp = tmp[:, 128:128 + 256, 128:128 + 256]
     # imwrite(f'./Pics_input/input_aberration_null.tif', tmp )
 
-    new_obj = np.zeros((bpm.Nz, bpm.Nx, bpm.Ny))
-    tmp = imread(f'./Pics_input/aberration.tif')
-    tmp = tmp * np.pi
-    new_obj=tmp
-    # new_obj[:, int(bpm.Nx / 4):int(bpm.Nx * 3 / 4), int(bpm.Ny / 4):int(bpm.Ny * 3 / 4)] = tmp
-    new_obj = np.moveaxis(new_obj, 0, -1)
-    bpm.aber=torch.tensor(new_obj, device=bpm.device, dtype=bpm.dtype, requires_grad=False)
+    t=torch.load('./Pics_input/aberration.pt')
+    t=t.to('cuda:0')
+    bpm.aber=t
+
+    bAber=True
+
+    # new_obj = np.zeros((bpm.Nz, bpm.Nx, bpm.Ny))
+    # tmp = imread(f'./Pics_input/aberration.tif')
+    # tmp = tmp * np.pi
+    # new_obj=tmp
+    # # new_obj[:, int(bpm.Nx / 4):int(bpm.Nx * 3 / 4), int(bpm.Ny / 4):int(bpm.Ny * 3 / 4)] = tmp
+    # new_obj = np.moveaxis(new_obj, 0, -1)
+    # bpm.aber=torch.tensor(new_obj, device=bpm.device, dtype=bpm.dtype, requires_grad=False)
 
     Istack = np.zeros([bpm.Nx, bpm.Ny, bpm.Nz])
 

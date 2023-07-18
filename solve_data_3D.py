@@ -270,11 +270,12 @@ if __name__ == '__main__':
 
         print(f"Epoch: {epoch} Loss: {np.round(np.mean(loss_list), 4)}")
 
-        with torch.no_grad():
-            sample=bpm.renderer(bpm.data)
-        obj = sample[:,:,:,0].cpu().detach().numpy().astype('float32')
-        imwrite(f'./Recons3D/dn_recons_{epoch}.tif', np.moveaxis(obj, -1, 0))
-        obj = sample[:,:,:,1].cpu().detach().numpy().astype('float32')
-        imwrite(f'./Recons3D/fluo_recons_{epoch}.tif', np.moveaxis(obj, -1, 0))
+        if (epoch%10==0):
+            with torch.no_grad():
+                sample=bpm.renderer(bpm.data)
+            obj = sample[:,:,:,0].cpu().detach().numpy().astype('float32')
+            imwrite(f'./Recons3D/dn_recons_{epoch}.tif', np.moveaxis(obj, -1, 0))
+            obj = sample[:,:,:,1].cpu().detach().numpy().astype('float32')
+            imwrite(f'./Recons3D/fluo_recons_{epoch}.tif', np.moveaxis(obj, -1, 0))
 
 
