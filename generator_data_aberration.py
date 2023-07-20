@@ -30,12 +30,13 @@ from solve_data_3D import bpmPytorch
 
 # python ./recon_exp_data.py --dynamic_scene --num_t 100 --data_dir ./DATA_DIR/NeuWS_experimental_data-selected/dynamic_objects_dynamic_aberrations/owlStamp_onionSkin/Zernike_SLM_data --scene_name owlStamp_onionSkin --phs_layers 4 --num_epochs 1000 --save_per_frame
 
-DEVICE = 'cuda'
-
 if __name__ == "__main__":
 
     PSF_size = 256
     num_polynomials = 48
+
+    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
     model_config = {'nm': 1.33,
@@ -52,26 +53,31 @@ if __name__ == "__main__":
                     'num_feats': 4,
                     'out_path': "./Recons3D/"}
 
-    bpm = bpmPytorch(model_config)
 
-    z_in = torch.abs(torch.randn(256,num_polynomials,device=DEVICE))
-    z_in = f.normalize(z_in, p=1, dim=1)
-    z_in = z_in.repeat(256, 256, 1, 1).permute(2,3,0,1)
-    basis = compute_zernike_basis(num_polynomials=num_polynomials,field_res=(PSF_size, PSF_size)).unsqueeze(0).repeat(256, 1, 1, 1)
-    basis = basis.to(DEVICE)
-    out=basis*z_in
-    out=torch.sum(out, dim=1)*torch.pi
+    for plane in tqdm(256):
+        for iter in range(100):
 
-    out_cpx = torch.zeros(256, 256, 256, dtype=torch.cfloat)
-    t = fftshift(bpm.pupil)
+            bpm = bpmPytorch(model_config)
 
-    for k in range(256):
-        tt =  torch.exp(torch.mul(torch.abs(t)*out[k, :, :], 20j))
-        tt=fftshift(tt)
-        out_cpx[k, :, :]=tt
 
-    torch.save(out_cpx,'./Pics_input/aberration.pt')
-    imwrite(f'./Pics_input/aberration.tif', torch.angle(out_cpx).detach().cpu().numpy())
+            z_in = torch.abs(torch.randn(256,num_polynomials,device=DEVICE))
+            z_in = f.normalize(z_in, p=1, dim=1)
+            z_in = z_in.repeat(256, 256, 1, 1).permute(2,3,0,1)
+            basis = compute_zernike_basis(num_polynomials=num_polynomials,field_res=(PSF_size, PSF_size)).unsqueeze(0).repeat(256, 1, 1, 1)
+            basis = basis.to(DEVICE)
+            out=basis*z_in
+            out=torch.sum(out, dim=1)*torch.pi
+
+            out_cpx = torch.zeros(256, 256, 256, dtype=torch.cfloat)
+            t = fftshift(bpm.pupil)
+
+            for k in range(256):
+                tt =  torch.exp(torch.mul(torch.abs(t)*out[k, :, :], 20j))
+                tt=fftshift(tt)
+                out_cpx[k, :, :]=tt
+
+            torch.save(out_cpx,'./Pics_input/stack/aberration_{iter}.pt')
+            imwrite(f'./Pics_input/aberration.tif', torch.angle(out_cpx).detach().cpu().numpy())
 
     nmean = torch.mean(out, axis=0)
     nstd = torch.std(out, axis=0)

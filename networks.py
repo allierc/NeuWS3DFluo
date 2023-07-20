@@ -223,17 +223,6 @@ class G_SpaceTime(nn.Module):
         )
         self.renderer = G_Renderer(in_dim=hidden_dim, hidden_dim=hidden_dim, num_layers=3)
 
-        # table = PrettyTable(["Modules", "Parameters"])
-        # total_params = 0
-        # for name, parameter in self.renderer.named_parameters():
-        #     if not parameter.requires_grad:
-        #         continue
-        #     param = parameter.numel()
-        #     table.add_row([name, param])
-        #     total_params += param
-        # print(table)
-        # print(f"Total Trainable Params: {total_params}")
-
     def forward(self, t):
         spatial_feats = self.spatial_net().unsqueeze(0).repeat(t.shape[0], 1, 1)
         spatial_feats = spatial_feats.reshape(-1, self.x_width, self.y_width, spatial_feats.shape[-1])

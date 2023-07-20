@@ -39,9 +39,7 @@ class G_Renderer(nn.Module):
 
     def forward(self, x):
 
-        out = torch.clamp(self.net(x),min=0,max=1)
-
-        return out
+        return self.net(x)
 
         # table = PrettyTable(["Modules", "Parameters"])
         # total_params = 0
@@ -74,64 +72,40 @@ class bpmPytorch(torch.nn.Module):
         self.num_feats = self.mc['num_feats']
         self.bFit = self.mc['bFit']
 
-        self.renderer = G_Renderer(in_dim=self.num_feats, hidden_dim=self.num_feats, num_layers=2, out_dim=2, device=self.device)
+        self.renderer = G_Renderer(in_dim=self.num_feats, hidden_dim=self.num_feats, num_layers=2, out_dim=1, device=self.device)
 
+        self.Nx = self.volume[0]
+        self.Ny = self.volume[1]
+        self.Nz = self.volume[2]
 
-        if self.padding:
-            self.Nx = self.volume[0] *2
-            self.Ny = self.volume[1] *2
-            self.Nz = self.volume[2]
+        self.f = nn.Parameter(torch.tensor(np.zeros([256, 256]),  device=self.device, dtype=self.dtype, requires_grad=True))
 
-            self.data = nn.Parameter(0.1 * torch.randn((self.Nx, self.Ny, self.Nz, self.num_feats), device=self.device, requires_grad=True))
+        self.data = nn.Parameter(torch.zeros((self.Nx, self.Ny, self.Nz, self.num_feats), device=self.device, requires_grad=True))
 
-            self.Npixels = self.Nx * self.Ny
-            self.field_shape = (self.Nx, self.Ny)
+        self.Npixels = self.Nx * self.Ny
+        self.field_shape = (self.Nx, self.Ny)
 
-            null_obj = np.zeros(( self.Nx, self.Ny, self.Nz,))
-            self.dn0 = torch.tensor(null_obj, device=self.device, dtype=self.dtype, requires_grad=False)
-            self.fluo = torch.tensor(null_obj, device=self.device, dtype=self.dtype, requires_grad=False)
-            self.aber = torch.tensor(null_obj, device=self.device, dtype=self.dtype, requires_grad=False)
+        null_obj = np.zeros(( self.Nx, self.Ny, self.Nz,))
+        self.dn0 = torch.tensor(null_obj, device=self.device, dtype=self.dtype, requires_grad=False)
+        self.fluo = torch.tensor(null_obj, device=self.device, dtype=self.dtype, requires_grad=False)
+        self.aber = torch.tensor(null_obj, device=self.device, dtype=self.dtype, requires_grad=False)
 
-        else:
-            self.Nx = self.volume[0]
-            self.Ny = self.volume[1]
-            self.Nz = self.volume[2]
+        new_obj = np.zeros((self.Nz, self.Nx, self.Ny))
+        tmp = imread(f'./Pics_input/target.tif')
+        new_obj = np.moveaxis(tmp, 0, -1)
+        self.fluo = torch.tensor(new_obj, device=self.device, dtype=self.dtype, requires_grad=False)
 
-            self.data = nn.Parameter(torch.zeros((self.Nx, self.Ny, self.Nz, self.num_feats), device=self.device, requires_grad=True))
+        new_obj = np.zeros((self.Nz, self.Nx, self.Ny))
+        tmp = imread(f'./Pics_input/dn.tif')
+        new_obj = np.moveaxis(tmp, 0, -1)
+        self.dn0 = torch.tensor(new_obj, device=self.device, dtype=self.dtype, requires_grad=False)
 
-            self.Npixels = self.Nx * self.Ny
-            self.field_shape = (self.Nx, self.Ny)
-
-            # null_obj = np.zeros(( self.Nx, self.Ny, self.Nz,))
-            # self.dn0 = torch.tensor(null_obj, device=self.device, dtype=self.dtype, requires_grad=False)
-            # self.fluo = torch.tensor(null_obj, device=self.device, dtype=self.dtype, requires_grad=False)
-            # self.aber = torch.tensor(null_obj, device=self.device, dtype=self.dtype, requires_grad=False)
-
-            new_obj = np.zeros((self.Nz, self.Nx, self.Ny))
-            tmp = imread(f'./Pics_input/target.tif')
-            new_obj = np.moveaxis(tmp, 0, -1)
-            self.fluo = torch.tensor(new_obj, device=self.device, dtype=self.dtype, requires_grad=False)
-
-            new_obj = np.zeros((self.Nz, self.Nx, self.Ny))
-            tmp = imread(f'./Pics_input/dn.tif')
-            new_obj = np.moveaxis(tmp, 0, -1)
-            self.dn0 = torch.tensor(new_obj, device=self.device, dtype=self.dtype, requires_grad=False)
-
-            new_obj = np.zeros((self.Nz, self.Nx, self.Ny))
-            tmp = imread(f'./Pics_input/aberration.tif')
-            tmp = tmp * np.pi
-            new_obj = np.moveaxis(tmp, 0, -1)
-            self.aber = torch.tensor(new_obj, device=self.device, dtype=self.dtype, requires_grad=False)
-            self.aber_layers = self.aber.unbind(dim=2)
-
-            # new_obj = io.imread(self.data_path)
-            # new_obj = np.moveaxis(new_obj, 0, -1)
-            # self.dn0 = torch.tensor(new_obj * coeff_RI, device=self.device, dtype=self.dtype, requires_grad=False)
-            # self.aber = torch.tensor(new_obj, device=self.device, dtype=self.dtype, requires_grad=True)
-            # fluo_obj = io.imread(self.fluo_data_path)
-            # fluo_obj = np.moveaxis(fluo_obj, 0, -1)
-            # self.fluo = torch.tensor(fluo_obj, device=self.device, dtype=self.dtype, requires_grad=True)
-            # self.fluo = torch.sqrt(self.fluo)
+        new_obj = np.zeros((self.Nz, self.Nx, self.Ny))
+        tmp = imread(f'./Pics_input/aberration.tif')
+        tmp = tmp * np.pi
+        new_obj = np.moveaxis(tmp, 0, -1)
+        self.aber = torch.tensor(new_obj, device=self.device, dtype=self.dtype, requires_grad=False)
+        self.aber_layers = self.aber.unbind(dim=2)
 
         self.dn0_layers = self.dn0.unbind(dim=2)
         self.fluo_layers = self.fluo.unbind(dim=2)
@@ -165,7 +139,7 @@ class bpmPytorch(torch.nn.Module):
         C = torch.nan_to_num(C, nan=0.0, posinf=0.0, neginf=0.0)
         self.C = C
 
-    def forward(self, phi=None, plane=None, verbose=False):
+    def forward(self, plane=None, phi=None, naber=0):
 
         k0 = 2 * np.pi / self.lbda
 
@@ -175,18 +149,20 @@ class bpmPytorch(torch.nn.Module):
 
         coef=torch.tensor(self.dz*k0*1.j, dtype=torch.cfloat, requires_grad=False, device=self.device)
 
-
         if self.bFit:
             sample=self.renderer(self.data)
             self.dn0_layers = sample[:,:,:,0].unbind(dim=2)
             self.fluo_layers = sample[:,:,:,1].unbind(dim=2)
+            self.fluo_layer = torch.squeeze(self.data[plane,:,:,0])
+        else:
+             self.fluo_layer = self.fluo_layers[plane]
 
         phi_layers=phi.unbind(dim=2)
 
         for i in range(plane,self.Nz):
             self.field = torch.mul(self.field, torch.exp(torch.mul(self.dn0_layers[i], coef)))
             if (i==plane):
-                S = torch.mul(self.fluo_layers[i],torch.exp(phi_layers[i]*1.j))
+                S = torch.mul(self.fluo_layer,torch.exp(phi_layers[i]*1.j))
                 S = torch.fft.ifftn(torch.mul(torch.fft.fftn(S),self.C))
                 self.field = torch.fft.ifftn(torch.mul(torch.fft.fftn(self.field+S),self.Hz1))
             else:
@@ -197,10 +173,14 @@ class bpmPytorch(torch.nn.Module):
         for i in range(plane,self.Nz):
             self.field = torch.mul(self.field,self.Hz2)
 
-        if self.bAber:
-            I = torch.abs(torch.fft.ifftn(self.field * self.aber_layers[plane])) ** 2
-        else:
+        if self.bAber == 0:
             I = torch.abs(torch.fft.ifftn(self.field * self.pupil)) ** 2
+        if self.bAber == 1:
+            I = torch.abs(torch.fft.ifftn(self.field * self.aber_layers[plane])) ** 2       # aberration is defined per volume (x256)
+        if self.bAber == 2:
+            I = torch.abs(torch.fft.ifftn(self.field * self.aber_layers[naber])) ** 2       # aberration is defined per plane (x100)
+
+
 
         return I
 
@@ -250,7 +230,6 @@ if __name__ == '__main__':
 
     torch.cuda.empty_cache()
     bpm = bpmPytorch(model_config)
-    bpm.train()
 
     # bpm.dn0 = nn.Parameter(0.0001*torch.rand([bpm.Nx, bpm.Ny, bpm.Nz], dtype=torch.float32, device=bpm.device, requires_grad=True))
     # bpm.fluo = nn.Parameter(0.1 * torch.rand([bpm.Nx, bpm.Ny, bpm.Nz], dtype=torch.float32, device=bpm.device, requires_grad=True))
@@ -264,64 +243,99 @@ if __name__ == '__main__':
 
     phiL = torch.rand([bpm.Nx, bpm.Ny, 1000], dtype=torch.float32, requires_grad=False, device=bpm.device) * 2 * np.pi
 
-    optimizer = torch.optim.Adam(bpm.parameters(), lr=1E-3)
-    optimizer.zero_grad()
+    # im_opt = torch.optim.Adam(bpm.data.parameters(), lr=1E-1)
+
+    optimizer = torch.optim.Adam(bpm.parameters(), lr=1E-2)  # , weight_decay=5e-3)
+
+    criteria = nn.MSELoss()
+    bpm.train()
 
     Niter = 5
-    batch = 4
+    batch = 1
 
     best_loss = np.inf
 
-    for epoch in range(10000):
+    # for plane in range(bpm.Nz):
 
-        loss_list = []
-        loss = 0
+    plane=0
+    loss_list = []
 
-        n_grad=0
-        plane_list=np.random.permutation(bpm.Nz)
+    for epoch in range(100):
 
-        for plane in tqdm(plane_list):
+        optimizer.zero_grad()
 
-            I = torch.ones(bpm.Nx, bpm.Ny, dtype=torch.float32, requires_grad=False, device=bpm.device)
-            for w in range(0, Niter):
-                zoi = np.random.randint(1000 - bpm.Nz)
-                I = I + bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz ])
+        # zoi = np.random.randint(1000 - bpm.Nz)
+        # out = bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz ])
 
-            I = I / Niter
+        out = bpm(plane=int(plane))
 
-            step_loss = (I-raw_data[plane]).norm(2) + 0*I.norm(1) * 1E-4
-            loss_list.append(step_loss.item())
-            loss +=step_loss
+        loss = criteria(out,raw_data[plane]*25) # + I.norm(1) * 1E-4
+        loss_list.append(loss.item())
 
-            if (n_grad%batch==0):
-                loss.backward()
-                optimizer.step()
-                optimizer.zero_grad()
-                # print(f"     plane: {plane} Loss: {np.round(loss.item()/batch, 4)}")
-                loss=0
 
-            n_grad += 1
+        loss.backward()
 
-        print(f"Epoch: {epoch} Loss: {np.round(np.mean(loss_list), 4)}")
+        optimizer.step()
 
-        if (epoch%10==0):
+        print(f"Epoch: {epoch} Loss: {np.round(loss.item(), 4)}")
 
-            if (np.mean(loss_list) < best_loss):
-                torch.save({'model_state_dict': bpm.state_dict(), 'optimizer_state_dict': optimizer.state_dict()},os.path.join(log_dir, 'models', 'best_model.pt'))
-                with torch.no_grad():
-                    sample = bpm.renderer(bpm.data)
-                # obj = sample[:, :, :, 0].cpu().detach().numpy().astype('float32')
-                # imwrite(f'./Recons3D/dn_recons_{epoch}.tif', np.moveaxis(obj, -1, 0))
-                obj = sample[:, :, :, 1].cpu().detach().numpy().astype('float32')
-                imwrite(f'./Recons3D/fluo_recons_{epoch}.tif', np.moveaxis(obj, -1, 0))
+    imwrite(f'./Recons3D/fluo_recons_{epoch}.tif', out.detach().cpu().numpy())
+    a=1
+
+
+
+
+
+
+    # loss = 0
+    #
+    # n_grad=0
+    # plane_list=np.random.permutation(bpm.Nz)
+    #
+    # # for plane in range(0,1):
+    #
+    # plane=0
+    #
+    # I = torch.ones(bpm.Nx, bpm.Ny, dtype=torch.float32, requires_grad=False, device=bpm.device)
+
+    # for w in range(0, Niter):
+    #     zoi = np.random.randint(1000 - bpm.Nz)
+    #     I = I + bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz ])
+    # I = I / Niter
+
+    # zoi = np.random.randint(1000 - bpm.Nz)
+    # I = bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz])
+
+
+
+    # if (np.mean(loss_list) < best_loss):
+    #     torch.save({'model_state_dict': bpm.state_dict(), 'optimizer_state_dict': optimizer.state_dict()},os.path.join(log_dir, 'models', 'best_model.pt'))
+    #     # with torch.no_grad():
+    #     #     sample = bpm.renderer(bpm.data)
+    #     # # obj = sample[:, :, :, 0].cpu().detach().numpy().astype('float32')
+    #     # # imwrite(f'./Recons3D/dn_recons_{epoch}.tif', np.moveaxis(obj, -1, 0))
+    #     # obj = sample[:, :, :, 1].cpu().detach().numpy().astype('float32')
+
+
 
     # plt.ion()
+    # plt.imshow(25 * raw_data[plane].detach().cpu().numpy(),vmin=0,vmax=1)
+    # plt.colorbar()
+    #
+    # plt.ion()
+    # plt.imshow(I.detach().cpu().numpy(),vmin=0,vmax=1)
+    # plt.colorbar()
+    #
+    # plt.imshow(self.fluo_layers[plane].detach().cpu().numpy())
     # plt.imshow(I.detach().cpu().numpy())
+    # plt.imshow(raw_data[plane].detach().cpu().numpy())
+    # plt.imshow((I - raw_data[plane]).detach().cpu().numpy())
     # plt.imshow(torch.abs(bpm.pupil).detach().cpu().numpy())
     # plt.imshow(self.dn0_layers[plane].detach().cpu().numpy())
     # plt.imshow(self.fluo_layers[plane].detach().cpu().numpy())
     # plt.imshow(torch.abs(self.aber_layers[plane]).detach().cpu().numpy())
     # plt.imshow(torch.angle(self.aber_layers[plane]).detach().cpu().numpy())
+    # plt.imshow(torch.angle(self.aber_layers[naber]).detach().cpu().numpy())
 
 
 
