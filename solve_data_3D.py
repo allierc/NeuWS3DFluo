@@ -180,8 +180,6 @@ class bpmPytorch(torch.nn.Module):
         if self.bAber == 2:
             I = torch.abs(torch.fft.ifftn(self.field * self.aber_layers[naber])) ** 2       # aberration is defined per plane (x100)
 
-
-
         return I
 
     def FresnelPropag(self, dz=0, fdir=[0, 0]):
@@ -192,6 +190,7 @@ class bpmPytorch(torch.nn.Module):
         else:
             K = torch.complex(-torch.sqrt(nf.relu(-K)), torch.sqrt(nf.relu(K)))
         hz = torch.exp(2 * np.pi * dz * K)
+
         return hz
 
 if __name__ == '__main__':

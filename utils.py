@@ -33,7 +33,7 @@ def load_data_static(N_image=42, N_acqui=100, device=[]):
 
 
     return x_batches, y_batches
-def load_data_time(N_image=42, N_acqui=100, batch_size=5, device=[]):
+def load_data_dynamic(N_image=42, N_acqui=100, batch_size=5, device=[]):
 
     x_batches = torch.zeros((N_acqui * batch_size, 1, 256, 256), dtype=torch.cfloat, device=device)
     y_batches = torch.zeros((N_acqui * batch_size, 256, 256), device=device)

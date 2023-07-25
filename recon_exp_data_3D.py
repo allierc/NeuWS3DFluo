@@ -20,45 +20,8 @@ from dataset import *
 import matplotlib.pyplot as plt
 from prettytable import PrettyTable
 import tifffile
-
-def TV(o):
-    nb_voxel = (o.shape[0]) * (o.shape[1])
-    sx,sy= grads(o)
-    TVloss = torch.sqrt(sx ** 2 + sy ** 2 + 1e-8).sum()
-    return TVloss / (nb_voxel)
-
-def grads(o):
-
-    o=torch.squeeze(o)
-
-    if len(o.shape)==2:
-        o_sx = torch.roll(o, -1, 0)
-        o_sy = torch.roll(o, -1, 1)
-
-        sx = -(o - o_sx)
-        sy = -(o - o_sy)
-
-        sx[-1, :] = 0
-        sy[:, -1] = 0
-
-        return [sx,sy]
-
-    elif len(o.shape)==3:
-        o_sx = torch.roll(o, -1, 0)
-        o_sy = torch.roll(o, -1, 1)
-        o_sz = torch.roll(o, -1, 2)
-
-        sx = -(o - o_sx)
-        sy = -(o - o_sy)
-        sz = -(o - o_sz)
-
-        sx[-1, :, :] = 0
-        sy[:, -1, :] = 0
-        sz[:, :, -1] = 0
-
-        return [sx,sy,sz]
-
-
+import tqdm
+import time
 
 # python3 ./recon_exp_data.py --static_phase True --num_t 100 --data_dir ./DATA_DIR/static_objects_static_aberrations/dog_esophagus_0.5diffuser/Zernike_SLM_data  --scene_name dog_esophagus_0.5diffuser --phs_layers 4 --num_epochs 1000 --save_per_fram
 
@@ -78,6 +41,7 @@ if __name__ == "__main__":
         parser.add_argument('--data_dir', default='DATA_DIR/NeuWS_experimental_data-selected/dynamic_objects_dynamic_aberrations/owlStamp_onionSkin/Zernike_SLM_data/', type=str)
     else:
         parser.add_argument('--data_dir',default='DATA_DIR/static_objects_static_aberrations/dog_esophagus_0.5diffuser/Zernike_SLM_data/',type=str)
+
     parser.add_argument('--scene_name', default='simu', type=str)
     parser.add_argument('--num_epochs', default=1000, type=int)
     parser.add_argument('--num_t', default=100, type=int)
@@ -112,10 +76,10 @@ if __name__ == "__main__":
     #     os.makedirNeuWSs(f'{vis_dir}/final/per_frame', exist_ok=True)
 
     ############
-    # Training preparations
-    dset = BatchDataset(data_dir, num=args.num_t, im_prefix=args.im_prefix, max_intensity=args.max_intensity, zero_freq=args.zero_freq)
-    x_batches = torch.cat(dset.xs, axis=0).unsqueeze(1).to(DEVICE)
-    y_batches = torch.stack(dset.ys, axis=0).to(DEVICE)
+    # Old training preparations
+    # dset = BatchDataset(data_dir, num=args.num_t, im_prefix=args.im_prefix, max_intensity=args.max_intensity, zero_freq=args.zero_freq)
+    # x_batches = torch.cat(dset.xs, axis=0).unsqueeze(1).to(DEVICE)
+    # y_batches = torch.stack(dset.ys, axis=0).to(DEVICE)
 
     if bDynamic:
         args.dynamic_scene = True
@@ -123,11 +87,6 @@ if __name__ == "__main__":
     else:
         args.dynamic_scene = False
         args.static_phase = True
-
-    print('x_batches', x_batches.shape)
-    print('y_batches', y_batches.shape)
-    print('static_phase', args.static_phase)
-    print('dynamic_scene',args.dynamic_scene)
 
     if args.dynamic_scene:
         net = MovingDiffuse(width=args.width, PSF_size=PSF_size, use_FFT=True, bsize=args.batch_size, phs_layers=args.phs_layers, static_phase=args.static_phase)
@@ -143,8 +102,7 @@ if __name__ == "__main__":
 
     # optimizer = torch.optim.Adam(net.parameters(), lr=args.init_lr)  # , weight_decay=5e-3)
 
-    total_it = 0
-    t = tqdm.trange(args.num_epochs, disable=args.silence_tqdm)
+
 
     ############
     # Training loop
@@ -153,14 +111,20 @@ if __name__ == "__main__":
     N_image=50
     N_acqui=100
 
+    dset = BatchDataset(data_dir, num=args.num_t, im_prefix=args.im_prefix, max_intensity=args.max_intensity,zero_freq=args.zero_freq)
     if bDynamic:
-        x_batches,y_batches = load_data_time(N_image=N_image, N_acqui=N_acqui, batch_size=args.batch_size, device=DEVICE)
+        x_batches,y_batches = load_data_dynamic(N_image=N_image, N_acqui=N_acqui, batch_size=args.batch_size, device=DEVICE)
         loop1=torch.range(0,len(dset)).long().to(DEVICE)
         loop2=range(0, len(dset), args.batch_size)
     else:
         x_batches, y_batches = load_data_static(N_image=N_image, N_acqui=N_acqui, device=DEVICE)
         loop1=torch.randperm(len(dset)).long().to(DEVICE)
         loop2=range(0, len(dset), args.batch_size)
+
+    print('x_batches', x_batches.shape)
+    print('y_batches', y_batches.shape)
+    print('static_phase', args.static_phase)
+    print('dynamic_scene',args.dynamic_scene)
 
     # plot inputs
     #
@@ -181,6 +145,9 @@ if __name__ == "__main__":
     #         #     plt.imshow(y_batch[k,:,:].detach().cpu().numpy(),vmin=0,vmax=2)
     #         plt.show()
 
+    total_it = 0
+    time.sleep(0.5)
+    t = tqdm.trange(args.num_epochs, disable=args.silence_tqdm)
 
     for epoch in t:
         idxs = loop1
@@ -202,6 +169,7 @@ if __name__ == "__main__":
 
             ph_opt.step()
             im_opt.step()
+
             # aber_opt.step()
             # optimizer.step()
 
@@ -210,13 +178,12 @@ if __name__ == "__main__":
             if args.vis_freq > 0 and (total_it % args.vis_freq) == 0:
                 y, _kernel, sim_g, sim_phs, I_est = net(x_batch, torch.zeros_like(cur_t) - 0.5)
 
-                Abe_est = fftshift(fft2(dset.a_slm.to(DEVICE) * sim_g, norm="forward"), dim=[-2, -1]).abs() ** 2
-                if I_est.shape[0] > 1:
-                    I_est = I_est[0:1]
-                I_est = torch.clamp(I_est, 0, 1)
-                yy = F.conv2d(I_est, Abe_est, padding='same').squeeze(0)
+                # Abe_est = fftshift(fft2(dset.a_slm.to(DEVICE) * sim_g, norm="forward"), dim=[-2, -1]).abs() ** 2
+                # if I_est.shape[0] > 1:
+                #     I_est = I_est[0:1]
+                # I_est = torch.clamp(I_est, 0, 1)
+                # yy = F.conv2d(I_est, Abe_est, padding='same').squeeze(0)
 
-                #fig, ax = plt.subplots(1, 6, figsize=(48, 8))
                 fig = plt.figure(figsize=(48, 8))
                 # plt.ion()
 
@@ -248,9 +215,9 @@ if __name__ == "__main__":
                 plt.title(f'Sim Phase Error at t={idx[0]}')
 
                 ax = fig.add_subplot(1, 6, 6)
-                plt.imshow(yy[0].squeeze().detach().cpu(), vmin=0, vmax=1, cmap='gray')
-                plt.axis('off')
-                plt.title(f'Abe_est * I_est at t={idx[0]}')
+                # plt.imshow(yy[0].squeeze().detach().cpu(), vmin=0, vmax=1, cmap='gray')
+                # plt.axis('off')
+                # plt.title(f'Abe_est * I_est at t={idx[0]}')
 
                 plt.savefig(f'{vis_dir}/e_{epoch}_it_{it}.jpg')
                 plt.clf()

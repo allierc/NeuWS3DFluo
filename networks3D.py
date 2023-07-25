@@ -13,6 +13,8 @@ from utils import compute_zernike_basis, fft_2xPad_Conv2D
 import tifffile
 import matplotlib.pyplot as plt
 
+from BPM3Dfluo_V1 import *
+
 
 class sine_act(nn.Module):
     def __init__(self):
@@ -21,8 +23,6 @@ class sine_act(nn.Module):
     def forward(self, x):
         out = torch.sin(x)
         return out
-
-
 class G_Renderer(nn.Module):
     def __init__(self, in_dim=32, hidden_dim=32, num_layers=2, out_dim=1):
         super().__init__()
@@ -61,8 +61,6 @@ class G_Renderer(nn.Module):
         # out = x[:,0:1]          # no MLP in Iest
 
         return out
-
-
 class G_FeatureTensor(nn.Module):
     def __init__(self, x_dim, y_dim, num_feats = 32, ds_factor = 1):
         super().__init__()
@@ -111,8 +109,6 @@ class G_FeatureTensor(nn.Module):
 
     def forward(self):
         return self.sample()
-
-
 class G_Tensor(G_FeatureTensor):
     def __init__(self, x_dim, y_dim=None):
         if y_dim is None:
@@ -123,8 +119,6 @@ class G_Tensor(G_FeatureTensor):
     def forward(self):
         feats = self.sample()   # torch.Size([16384, 32]) 128*128*32 requires_grad True
         return self.renderer(feats).reshape([-1, 1, self.x_dim, self.y_dim])
-
-
 class G_PatchTensor(nn.Module):
     def __init__(self, width):
         super().__init__()
@@ -143,8 +137,6 @@ class G_PatchTensor(nn.Module):
         right = torch.cat([p3, p4], axis=-1)
 
         return torch.cat([left, right], axis=-2)
-
-
 class Embedding(nn.Module):
     def __init__(self, in_channels, N_freqs, logscale=True):
         """
@@ -258,8 +250,6 @@ class G_SpaceTime(nn.Module):
         output = F.leaky_relu(output, 0.001)
 
         return output
-
-
 class TemporalZernNet(nn.Module):
     def __init__(self, width, PSF_size, phs_layers = 2, use_FFT=True, bsize=8, use_pe=False, static_phase=True):
         super().__init__()
@@ -305,7 +295,7 @@ class TemporalZernNet(nn.Module):
 
         self.t_grid = nn.Parameter(torch.ones_like(self.basis[..., 0:1]), requires_grad=False)
         self.use_FFT = use_FFT
-        print(f'Using FFT approximation of convolution: {self.use_FFT}')
+        # print(f'Using FFT approximation of convolution: {self.use_FFT}')
         self.static_phase = static_phase
 
     # def get_estimates(self, t):
@@ -362,6 +352,7 @@ class StaticDiffuseNet(TemporalZernNet):
         t_dim = 1 if not static_phase else 0
         in_dim = self.basis.shape[-1]
         act_fn = nn.LeakyReLU(inplace=True)
+
         layers = []
         layers.append(nn.Linear(t_dim + in_dim, hidden_dim))
         for _ in range(phs_layers):
@@ -369,11 +360,25 @@ class StaticDiffuseNet(TemporalZernNet):
             # layers.append(nn.LayerNorm(hidden_dim))
             layers.append(act_fn)
         layers.append(nn.Linear(hidden_dim, 2))
+
         self.g_g = nn.Sequential(*layers)
-        print(f'static_phase {static_phase}')
+
         self.static_phase = static_phase
 
         self.aber = nn.Parameter(torch.rand([8,2,256,256]), requires_grad=True)
+
+        self.bpm_config = {'nm': 1.33,
+                        'na': 1.0556,
+                        'dx': 0.1154,
+                        'dz': 0.1,
+                        'lbda': 0.5320,
+                        'volume': [256, 256, 256],
+                        'padding': False,
+                        'dtype': torch.float32,
+                        'device': 'cuda',
+                        'load_data': False}
+
+        self.bpm = bpm3Dfluo(bpm_config=self.bpm_config)
 
 
     def get_estimates(self, t):
@@ -456,6 +461,7 @@ class StaticDiffuseNet(TemporalZernNet):
     #         y = F.conv2d(I_est, _kernel, padding='same').squeeze()
     #
     #     return y, _kernel, sim_g, sim_phs, I_est
+
 class MovingTemporalZernNet(TemporalZernNet):
     def __init__(self, width, PSF_size, phs_layers = 5, use_FFT=True, bsize=8, use_pe=False, static_phase=True):
         super().__init__(width, PSF_size, use_pe=False, phs_layers=phs_layers, use_FFT=use_FFT, bsize=bsize)
