@@ -10,6 +10,8 @@ from prettytable import PrettyTable
 import numpy as np
 import torchvision.transforms
 from utils import compute_zernike_basis, fft_2xPad_Conv2D
+import tifffile
+import matplotlib.pyplot as plt
 
 
 class sine_act(nn.Module):
@@ -416,14 +418,29 @@ class StaticDiffuseNet(TemporalZernNet):
         # print(table)
         # print(f"Total Trainable Params: {total_params}")
 
-        # import matplotlib.pyplot as plt
-        #
-        # for k in range(60):
-        #     im = self.basis[0, :, :, k]
-        #     im = im.detach().cpu().numpy()
-        #     plt.imshow(np.squeeze(im))
-        #     plt.savefig(f"./tmp/Zer_{k}.tif")
-        #     plt.close()
+
+        # # plot estimated    time
+        # fig = plt.figure(figsize=(12, 12))
+        # plt.ion()
+        # ax = fig.add_subplot(3, 5, 1)
+        # plt.imshow(I_est[0,0,:,:].detach().cpu().numpy())
+        # for k in range(5):
+        #     ax = fig.add_subplot(3, 5, 6+k)
+        #     plt.imshow(sim_phs[k,0,:,:].detach().cpu().numpy())
+        #     ax = fig.add_subplot(3, 5, 11+k)
+        #     plt.imshow(sim_amp[k,0,:,:].detach().cpu().numpy())
+
+
+        # plot estimated    time
+        # fig = plt.figure(figsize=(12, 12))
+        # plt.ion()
+        # for k in range(5):
+        #     ax = fig.add_subplot(3, 5, 1+k)
+        #     plt.imshow(I_est[k,0,:,:].detach().cpu().numpy())
+        #     ax = fig.add_subplot(3, 5, 6+k)
+        #     plt.imshow(sim_phs[k,0,:,:].detach().cpu().numpy())
+        #     ax = fig.add_subplot(3, 5, 11+k)
+        #     plt.imshow(sim_amp[k,0,:,:].detach().cpu().numpy())
 
         return I_est, sim_g, sim_phs
 
@@ -552,6 +569,18 @@ class MovingDiffuse(TemporalZernNet):
         sim_g = sim_amp * torch.exp(1j * sim_phs)
         if return_amp:
             return I_est, sim_g, sim_phs, sim_amp
+
+        # plot estimated
+        #
+        # fig = plt.figure(figsize=(12, 12))
+        # plt.ion()
+        # for k in range(5):
+        #     ax = fig.add_subplot(3, 5, 1+k)
+        #     plt.imshow(I_est[k,0,:,:].detach().cpu().numpy())
+        #     ax = fig.add_subplot(3, 5, 6+k)
+        #     plt.imshow(sim_phs[k,0,:,:].detach().cpu().numpy())
+        #     ax = fig.add_subplot(3, 5, 11+k)
+        #     plt.imshow(sim_amp[k,0,:,:].detach().cpu().numpy())
 
         return I_est, sim_g, sim_phs,
 

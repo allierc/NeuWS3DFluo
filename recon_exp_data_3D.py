@@ -14,13 +14,12 @@ torch.cuda.empty_cache()
 
 import torch.nn.functional as F
 from torch.fft import fft2, fftshift
-from networks import *
+from networks3D import *
 from utils import *
 from dataset import *
 import matplotlib.pyplot as plt
 from prettytable import PrettyTable
-
-import matplotlib.pyplot as plt
+import tifffile
 
 def TV(o):
     nb_voxel = (o.shape[0]) * (o.shape[1])
@@ -59,6 +58,8 @@ def grads(o):
 
         return [sx,sy,sz]
 
+
+
 # python3 ./recon_exp_data.py --static_phase True --num_t 100 --data_dir ./DATA_DIR/static_objects_static_aberrations/dog_esophagus_0.5diffuser/Zernike_SLM_data  --scene_name dog_esophagus_0.5diffuser --phs_layers 4 --num_epochs 1000 --save_per_fram
 
 # python ./recon_exp_data.py --dynamic_scene --num_t 100 --data_dir ./DATA_DIR/NeuWS_experimental_data-selected/dynamic_objects_dynamic_aberrations/owlStamp_onionSkin/Zernike_SLM_data --scene_name owlStamp_onionSkin --phs_layers 4 --num_epochs 1000 --save_per_frame
@@ -66,16 +67,23 @@ def grads(o):
 DEVICE = 'cuda'
 
 if __name__ == "__main__":
+
+
+    bDynamic = False
+
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--root_dir', default='.', type=str)
-    parser.add_argument('--data_dir', default='DATA_DIR/static_objects_static_aberrations/dog_esophagus_0.5diffuser/Zernike_SLM_data/', type=str)
-    # parser.add_argument('--data_dir', default='DATA_DIR/NeuWS_experimental_data-selected/dynamic_objects_dynamic_aberrations/owlStamp_onionSkin/Zernike_SLM_data/', type=str)
-    parser.add_argument('--scene_name', default='dog_esophagus_0.5diffuser', type=str)
+    if bDynamic:
+        parser.add_argument('--data_dir', default='DATA_DIR/NeuWS_experimental_data-selected/dynamic_objects_dynamic_aberrations/owlStamp_onionSkin/Zernike_SLM_data/', type=str)
+    else:
+        parser.add_argument('--data_dir',default='DATA_DIR/static_objects_static_aberrations/dog_esophagus_0.5diffuser/Zernike_SLM_data/',type=str)
+    parser.add_argument('--scene_name', default='simu', type=str)
     parser.add_argument('--num_epochs', default=1000, type=int)
     parser.add_argument('--num_t', default=100, type=int)
-    parser.add_argument('--batch_size', default=8, type=int)
+    parser.add_argument('--batch_size', default=5, type=int)
     parser.add_argument('--width', default=256, type=int)
-    parser.add_argument('--vis_freq', default=1000, type=int)
+    parser.add_argument('--vis_freq', default=200, type=int)
     parser.add_argument('--init_lr', default=1e-3, type=float)
     parser.add_argument('--final_lr', default=1e-3, type=float)
     parser.add_argument('--silence_tqdm', action='store_true')
@@ -106,14 +114,15 @@ if __name__ == "__main__":
     ############
     # Training preparations
     dset = BatchDataset(data_dir, num=args.num_t, im_prefix=args.im_prefix, max_intensity=args.max_intensity, zero_freq=args.zero_freq)
-
-    dset.load_in_cache()
-
     x_batches = torch.cat(dset.xs, axis=0).unsqueeze(1).to(DEVICE)
     y_batches = torch.stack(dset.ys, axis=0).to(DEVICE)
 
-    args.dynamic_scene = False
-    args.static_phase = True
+    if bDynamic:
+        args.dynamic_scene = True
+        args.static_phase = False
+    else:
+        args.dynamic_scene = False
+        args.static_phase = True
 
     print('x_batches', x_batches.shape)
     print('y_batches', y_batches.shape)
@@ -141,90 +150,53 @@ if __name__ == "__main__":
     # Training loop
     t0 = time.time()
 
-    # for k in range(0,32):
-    #     fig = plt.figure(figsize=(24, 8))
-    #     ax = fig.add_subplot(1, 3, 1)
-    #     im = torch.abs(x_batches[k,0, :, :])
-    #     im = im.detach().cpu().numpy()
-    #     plt.imshow(np.squeeze(im))
-    #     plt.colorbar()
-    #     plt.title('Amplitude SLM')
-    #     ax = fig.add_subplot(1, 3, 2)
-    #     im = torch.angle(x_batches[k,0, :, :])
-    #     im = im.detach().cpu().numpy()
-    #     plt.imshow(np.squeeze(im))
-    #     plt.colorbar()
-    #     plt.title('Phase SLM')
-    #     ax = fig.add_subplot(1, 3, 3)
-    #     im = torch.abs(y_batches[k, :, :])
-    #     im = im.detach().cpu().numpy()
-    #     plt.imshow(np.squeeze(im))
-    #     plt.colorbar()
-    #     plt.title(f'Measurement {k}/100')
-    #     plt.savefig(f"./tmp/data_{k}.tif")
-    #     plt.close()
+    N_image=50
+    N_acqui=100
 
-    t1 = net.g_im.net1.data
-    t2 = net.g_im.net2.data
-    t3 = net.g_im.net3.data
-    t4 = net.g_im.net4.data
+    if bDynamic:
+        x_batches,y_batches = load_data_time(N_image=N_image, N_acqui=N_acqui, batch_size=args.batch_size, device=DEVICE)
+        loop1=torch.range(0,len(dset)).long().to(DEVICE)
+        loop2=range(0, len(dset), args.batch_size)
+    else:
+        x_batches, y_batches = load_data_static(N_image=N_image, N_acqui=N_acqui, device=DEVICE)
+        loop1=torch.randperm(len(dset)).long().to(DEVICE)
+        loop2=range(0, len(dset), args.batch_size)
 
-
-    for k in range(0,32):
-        fig = plt.figure(figsize=(12, 12))
-        ax = fig.add_subplot(2, 2, 1)
-        im = t1[:,:,k]
-        im = im.detach().cpu().numpy()
-        plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
-        plt.colorbar()
-        plt.title('p1')
-        ax = fig.add_subplot(2, 2, 2)
-        im = t2[:,:,k]
-        im = im.detach().cpu().numpy()
-        plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
-        plt.colorbar()
-        plt.title('p2')
-        ax = fig.add_subplot(2, 2, 3)
-        im = t3[:,:,k]
-        im = im.detach().cpu().numpy()
-        plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
-        plt.colorbar()
-        plt.title('p3')
-        ax = fig.add_subplot(2, 2, 4)
-        im = t4[:,:,k]
-        im = im.detach().cpu().numpy()
-        plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
-        plt.colorbar()
-        plt.title('p4')
-        plt.savefig(f"./tmp/data_{k}.tif")
-        plt.close()
+    # plot inputs
+    #
+    # for epoch in t:
+    #     idxs = loop1
+    #     for it in loop2:
+    #         idx = idxs[it:it+args.batch_size]
+    #         x_batch, y_batch = x_batches[idx], y_batches[idx]
+    #
+    #         fig = plt.figure(figsize=(12, 12))
+    #         plt.imshow(y_batch[0, :, :].detach().cpu().numpy(), vmin=0, vmax=2)
+    #         # for k in range(5):
+    #         #     ax = fig.add_subplot(3, 5, 1+k)
+    #         #     plt.imshow(torch.abs(x_batch[k,0,:,:]).detach().cpu().numpy(),vmin=0,vmax=1)
+    #         #     ax = fig.add_subplot(3, 5, 6+k)
+    #         #     plt.imshow(torch.angle(x_batch[k,0,:,:]).detach().cpu().numpy(),vmin=-3.14,vmax=3.14)
+    #         #     ax = fig.add_subplot(3, 5, 11+k)
+    #         #     plt.imshow(y_batch[k,:,:].detach().cpu().numpy(),vmin=0,vmax=2)
+    #         plt.show()
 
 
     for epoch in t:
-        idxs = torch.randperm(len(dset)).long().to(DEVICE)
-        for it in range(0, len(dset), args.batch_size):
+        idxs = loop1
+        for it in loop2:
             idx = idxs[it:it+args.batch_size]
             x_batch, y_batch = x_batches[idx], y_batches[idx]
             cur_t = (idx / (args.num_t - 1)) - 0.5
             im_opt.zero_grad();  ph_opt.zero_grad()
-            # optimizer.zero_grad()
 
             y, _kernel, sim_g, sim_phs, I_est = net(x_batch, cur_t)
 
-            # import matplotlib.pyplot as plt
-            # plt.ion()
-            # im = x_batch[2, 0,:, :]
-            # im = im.detach().cpu().numpy()
-            # plt.imshow(np.squeeze(im))
+            loss = F.mse_loss(y, y_batch)
 
-            mse_loss = F.mse_loss(y, y_batch)
-
-            # if epoch>100:
-            #     loss = mse_loss + TV(I_est)/1E9
-            # else:
-            #     loss = mse_loss
-
-            loss = mse_loss
+            # if epoch>75:
+            #     loss = F.mse_loss(y, y_batch) + I_est.norm(1) / 1E6
+            #    loss = mse_loss + TV(I_est)/1E9
 
             loss.backward()
 
@@ -233,7 +205,7 @@ if __name__ == "__main__":
             # aber_opt.step()
             # optimizer.step()
 
-            t.set_postfix(MSE=f'{mse_loss.item():.4e}')
+            t.set_postfix(MSE=f'{loss.item():.4e}')
 
             if args.vis_freq > 0 and (total_it % args.vis_freq) == 0:
                 y, _kernel, sim_g, sim_phs, I_est = net(x_batch, torch.zeros_like(cur_t) - 0.5)
@@ -249,17 +221,17 @@ if __name__ == "__main__":
                 # plt.ion()
 
                 ax = fig.add_subplot(1, 6, 1)
-                plt.imshow(y_batch[0].detach().cpu().squeeze(), vmin=0, vmax=1, cmap='gray')
+                plt.imshow(y_batch[0].detach().cpu().squeeze(), vmin=0, vmax=2, cmap='gray')
                 plt.axis('off')
                 plt.title('Real Measurement')
 
                 ax = fig.add_subplot(1, 6, 2)
-                plt.imshow(y[0].detach().cpu().squeeze(), vmin=0, vmax=1, cmap='gray')
+                plt.imshow(y[0].detach().cpu().squeeze(), vmin=0, vmax=2, cmap='gray')
                 plt.axis('off')
                 plt.title('Sim Measurement')
 
                 ax = fig.add_subplot(1, 6, 3)
-                plt.imshow(I_est.detach().cpu().squeeze(), cmap='gray')
+                plt.imshow(I_est.detach().cpu().squeeze(), vmin=0, vmax=2, cmap='gray')
                 plt.axis('off')
                 plt.title('I_est')
 

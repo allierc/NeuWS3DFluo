@@ -66,7 +66,7 @@ DEVICE = 'cuda'
 if __name__ == "__main__":
 
 
-    bDynamic = False
+    bDynamic = True
 
 
     parser = argparse.ArgumentParser()
@@ -217,11 +217,11 @@ if __name__ == "__main__":
 
             y, _kernel, sim_g, sim_phs, I_est = net(x_batch, cur_t)
 
-            # import matplotlib.pyplot as plt
-            # plt.ion()
-            # im = x_batch[2, 0,:, :]
-            # im = im.detach().cpu().numpy()
-            # plt.imshow(np.squeeze(im))
+            import matplotlib.pyplot as plt
+            plt.ion()
+            im = x_batch[2, 0,:, :]
+            im = im.detach().cpu().numpy()
+            plt.imshow(np.squeeze(im))
 
             mse_loss = F.mse_loss(y, y_batch)
 

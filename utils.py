@@ -14,8 +14,61 @@ from torch.fft import fft2, fftshift, irfftn, rfftn, ifftshift
 
 from PIL import Image
 import matplotlib.pyplot as plt
+import tifffile
 
 ang_to_unit = lambda x : ((x / np.pi) + 1) / 2
+
+
+def load_data_static(N_image=42, N_acqui=100, device=[]):
+
+    x_batches = torch.zeros((N_acqui, 1, 256, 256), dtype=torch.cfloat, device=device)
+    y_batches = torch.zeros((N_acqui, 256, 256), device=device)
+
+    im_0 = torch.tensor(tifffile.imread(f'./Pics_input/stack/input_aberration_plane{N_image}.tif'), device=device)
+    aber_0 = torch.load(f'./Pics_input/stack/aberration_plane{N_image}.pt')
+
+    for N in range(N_acqui):
+        x_batches[N, 0, :, :] = aber_0[N, :, :]  # module of the introduced aberrations
+        y_batches[N, :, :] = im_0[N, :, :] * 25  # acquisition with introduced aberrations
+
+
+    return x_batches, y_batches
+def load_data_time(N_image=42, N_acqui=100, batch_size=5, device=[]):
+
+    x_batches = torch.zeros((N_acqui * batch_size, 1, 256, 256), dtype=torch.cfloat, device=device)
+    y_batches = torch.zeros((N_acqui * batch_size, 256, 256), device=device)
+
+    im_0 = torch.tensor(tifffile.imread(f'./Pics_input/stack/input_aberration_plane{N_image - 2}.tif'), device=device)
+    im_1 = torch.tensor(tifffile.imread(f'./Pics_input/stack/input_aberration_plane{N_image - 1}.tif'), device=device)
+    im_2 = torch.tensor(tifffile.imread(f'./Pics_input/stack/input_aberration_plane{N_image - 0}.tif'), device=device)
+    im_3 = torch.tensor(tifffile.imread(f'./Pics_input/stack/input_aberration_plane{N_image + 1}.tif'), device=device)
+    im_4 = torch.tensor(tifffile.imread(f'./Pics_input/stack/input_aberration_plane{N_image + 2}.tif'), device=device)
+
+    aber_0 = torch.load(f'./Pics_input/stack/aberration_plane{N_image - 2}.pt')
+    aber_1 = torch.load(f'./Pics_input/stack/aberration_plane{N_image - 1}.pt')
+    aber_2 = torch.load(f'./Pics_input/stack/aberration_plane{N_image - 0}.pt')
+    aber_3 = torch.load(f'./Pics_input/stack/aberration_plane{N_image + 1}.pt')
+    aber_4 = torch.load(f'./Pics_input/stack/aberration_plane{N_image + 2}.pt')
+
+    N = 0
+
+    for it in range(N_acqui):
+        for k in range(batch_size):
+            x_batches[N, 0, :, :] = aber_0[it, :, :]  # module of the introduced aberrations
+            x_batches[N+1, 0, :, :] = aber_1[it, :, :]
+            x_batches[N+2, 0, :, :] = aber_2[it, :, :]
+            x_batches[N+3, 0, :, :] = aber_3[it, :, :]
+            x_batches[N+4, 0, :, :] = aber_4[it, :, :]
+
+            y_batches[N, :, :] = im_0[it, :, :] * 25  # acquisition with introduced aberrations
+            y_batches[N + 1, :, :] = im_1[it, :, :] * 25
+            y_batches[N + 2, :, :] = im_2[it, :, :] * 25
+            y_batches[N + 3, :, :] = im_3[it, :, :] * 25
+            y_batches[N + 4, :, :] = im_4[it, :, :] * 25
+
+        N = N + batch_size
+
+    return x_batches, y_batches
 
 def gen_moving_dataset(data_dir, num_frames=256):
     nums_per_image = 1
