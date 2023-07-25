@@ -316,9 +316,9 @@ class TemporalZernNet(nn.Module):
 
     def forward(self, x_batch, t):
 
-        # x_batch torch.Size([8, 1, 256, 256]) requires_grad True
-        # sim_g torch.Size([8, 1, 256, 256]) requires_grad True
-        # _kernel.shape torch.Size([8, 1, 256, 256]) requires_grad True
+        # x_batch torch.Size([1, 1, 256, 256]) requires_grad True
+        # sim_g torch.Size([1, 1, 256, 256]) requires_grad True
+        # _kernel.shape torch.Size([1, 1, 256, 256]) requires_grad True
 
         I_est, sim_g, sim_phs = self.get_estimates(t)
 
@@ -326,14 +326,20 @@ class TemporalZernNet(nn.Module):
         # sim_phs = self.aber[:t.shape[0],1:2,:,:]
         # _kernel = fftshift(fft2( torch.exp(1j * sim_phs) * x_batch, norm="forward"), dim=[-2, -1]).abs() ** 2
 
-        _kernel = fftshift(fft2(sim_g * x_batch, norm="forward"), dim=[-2, -1]).abs() ** 2
-        _kernel = _kernel / torch.sum(_kernel, dim=[-2, -1], keepdim=True)
-        _kernel = _kernel.flip(2).flip(3)
 
-        if self.use_FFT:
-            y = fft_2xPad_Conv2D(I_est, _kernel).squeeze()
-        else:
-            y = F.conv2d(I_est, _kernel, padding='same').squeeze()
+
+
+
+
+
+        # _kernel = fftshift(fft2(sim_g * x_batch, norm="forward"), dim=[-2, -1]).abs() ** 2
+        # _kernel = _kernel / torch.sum(_kernel, dim=[-2, -1], keepdim=True)
+        # _kernel = _kernel.flip(2).flip(3)
+        #
+        # if self.use_FFT:
+        #     y = fft_2xPad_Conv2D(I_est, _kernel).squeeze()
+        # else:
+        #     y = F.conv2d(I_est, _kernel, padding='same').squeeze()
 
         # y torch.Size([8, 256, 256]) requires_grad True
 
@@ -402,13 +408,13 @@ class StaticDiffuseNet(TemporalZernNet):
             g_in = torch.cat([self.basis[:t.shape[0]], cat_grid], dim = -1)
         else:
             cat_grid = self.t_grid[:t.shape[0]]
-            g_in = self.basis[:t.shape[0]]      # torch.Size([8, 256, 256, 28]) requires_grad=False
+            g_in = self.basis[:t.shape[0]]      # torch.Size([1, 256, 256, 28]) requires_grad=False
 
         g_out = self.g_g(g_in)
-        g_out = g_out.permute(0, 3, 1, 2)       # torch.Size([8, 256, 256, 2]) requires_grad=True
+        g_out = g_out.permute(0, 3, 1, 2)       # torch.Size([1, 256, 256, 2]) requires_grad=True
 
-        sim_phs = g_out[:, 1:2]         # torch.Size([8, 1, 256, 256]) requires_grad=True
-        sim_amp = g_out[:, 0:1]         # torch.Size([8, 1, 256, 256]) requires_grad=True
+        sim_phs = g_out[:, 1:2]         # torch.Size([1, 1, 256, 256]) requires_grad=True
+        sim_amp = g_out[:, 0:1]         # torch.Size([1, 1, 256, 256]) requires_grad=True
         sim_g = sim_amp * torch.exp(1j * sim_phs)
 
 

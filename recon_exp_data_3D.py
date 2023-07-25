@@ -45,7 +45,7 @@ if __name__ == "__main__":
     parser.add_argument('--scene_name', default='simu', type=str)
     parser.add_argument('--num_epochs', default=1000, type=int)
     parser.add_argument('--num_t', default=100, type=int)
-    parser.add_argument('--batch_size', default=5, type=int)
+    parser.add_argument('--batch_size', default=1, type=int)
     parser.add_argument('--width', default=256, type=int)
     parser.add_argument('--vis_freq', default=200, type=int)
     parser.add_argument('--init_lr', default=1e-3, type=float)

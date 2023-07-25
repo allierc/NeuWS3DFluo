@@ -21,6 +21,7 @@ from utils import compute_zernike_basis, fft_2xPad_Conv2D
 from solve_data_3D import bpmPytorch
 import torch.nn.functional as f
 from torch.fft import fft2, fftshift
+from shutil import copyfile
 
 if __name__ == '__main__':
 
@@ -53,6 +54,8 @@ if __name__ == '__main__':
                     'num_feats': 4,
                     'out_path': "./Recons3D/"}
 
+    copyfile(os.path.realpath(__file__), os.path.join(f'./Pics_input/', 'generating_code.py'))
+
     torch.cuda.empty_cache()
     bpm = bpmPytorch(model_config)      # just to get the pupil function
 
@@ -71,11 +74,12 @@ if __name__ == '__main__':
 
     print(' ')
 
+    x_batches = torch.zeros((100, 256, 256, 256), dtype=torch.cfloat, device=device)
+    y_batches = torch.zeros((100, 256, 256, 256), device=device)
+
     for plane in range(0, bpm.Nz):
 
         print(f'plane: {plane}')
-
-        Istack = np.zeros([bpm.Nx, bpm.Ny, 100])
 
         z_in = torch.abs(torch.randn(100, num_polynomials, device=DEVICE))
         z_in = f.normalize(z_in, p=1, dim=1)
@@ -93,6 +97,8 @@ if __name__ == '__main__':
             tt = fftshift(tt)
             out_cpx[k, :, :] = tt
 
+        x_batches[:, plane:plane+1, :, :] = out_cpx[:,None,:,:]
+
         torch.save(out_cpx, f'./Pics_input/stack/aberration_plane{plane}.pt')
         imwrite(f'./Pics_input/stack/aberration_plane{plane}.tif', torch.angle(out_cpx).detach().cpu().numpy())
 
@@ -100,6 +106,7 @@ if __name__ == '__main__':
         bpm.aber_layers = bpm.aber.unbind(dim=0)
         bpm.bAber = 2
 
+        Istack = np.zeros([bpm.Nx, bpm.Ny, 100])
         phiL = torch.rand([bpm.Nx, bpm.Ny, 1000], dtype=torch.float32, requires_grad=False, device='cuda:0') * 2 * np.pi
 
         for naber in tqdm(range(100)):
@@ -111,8 +118,19 @@ if __name__ == '__main__':
                     I = I + bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz ], naber=naber)
             Istack[:, :, naber] = I.detach().cpu().numpy() / Niter
 
+        tmp = torch.tensor(Istack,device=device)
+        tmp = torch.permute(tmp, (2, 0, 1))
+        y_batches[:, plane:plane + 1, :, :] = tmp[:, None, :, :]
+
         tmp = np.moveaxis(Istack, -1, 0)
         imwrite(f'./Pics_input/stack/input_aberration_plane{plane}.tif', tmp )
+
+    print (' Saving x_batches y_batches ... ')
+
+    torch.save(x_batches,f'./Pics_input/x_batches.pt')
+    torch.save(x_batches, f'./Pics_input/y_batches.pt')
+
+
 
 
 

@@ -21,7 +21,19 @@ ang_to_unit = lambda x : ((x / np.pi) + 1) / 2
 
 def load_data_static(N_image=42, N_acqui=100, device=[]):
 
-    x_batches = torch.zeros((N_acqui, 1, 256, 256), dtype=torch.cfloat, device=device)
+    x_batches = torch.zeros((N_acqui, 256, 256, 256), dtype=torch.cfloat, device=device)
+    y_batches = torch.zeros((N_acqui, 256, 256), device=device)
+
+    im_0 = torch.tensor(tifffile.imread(f'./Pics_input/stack/input_aberration_plane{N_image}.tif'), device=device)
+    aber_0 = torch.load(f'./Pics_input/stack/aberration_plane{N_image}.pt')
+
+    for N in range(N_acqui):
+        x_batches[N, 0, :, :] = aber_0[N, :, :]  # module of the introduced aberrations
+        y_batches[N, :, :] = im_0[N, :, :] * 25  # acquisition with introduced aberrations
+
+def load_volume_aberr(N_image=42, N_acqui=100, device=[]):
+
+    x_batches = torch.zeros((N_acqui, 256, 256, 256), dtype=torch.cfloat, device=device)
     y_batches = torch.zeros((N_acqui, 256, 256), device=device)
 
     im_0 = torch.tensor(tifffile.imread(f'./Pics_input/stack/input_aberration_plane{N_image}.tif'), device=device)
