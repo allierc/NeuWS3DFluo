@@ -90,7 +90,7 @@ class bpm3Dfluo(torch.nn.Module):
         imwrite('./vis/C.tif', np.array(C.cpu()))
         self.C = C
 
-    def forward(self, plane=None, phi=None, naber=0):
+    def forward(self, plane=None, phi=None, gamma=None, fluo_unknown=None, dn_unknown=None):
 
         k0 = 2 * np.pi / self.lbda
 
@@ -100,32 +100,22 @@ class bpm3Dfluo(torch.nn.Module):
 
         coef = torch.tensor(self.dz * k0 * 1.j, dtype=torch.cfloat, requires_grad=False, device=self.device)
 
-        self.fluo_layer = self.fluo_layers[plane]
-
-        phi_layers = phi.unbind(dim=2)
-
-        for i in range(plane, self.Nz):
-            self.field = torch.mul(self.field, torch.exp(torch.mul(self.dn0_layers[i], coef)))
-            if (i == plane):
-                S = torch.mul(self.fluo_layer, torch.exp(phi_layers[i] * 1.j))
-                S = torch.fft.ifftn(torch.mul(torch.fft.fftn(S), self.C))
-                self.field = torch.fft.ifftn(torch.mul(torch.fft.fftn(self.field + S), self.Hz1))
+        for i in range(plane,self.Nz):
+            if (i==plane):
+                S = torch.mul(fluo_unknown,torch.exp(phi*1.j))
+                S = torch.fft.ifftn(torch.mul(torch.fft.fftn(S),self.C))
+                self.field = torch.mul(S, torch.exp(torch.mul(dn_unknown, coef)))
             else:
-                self.field = torch.fft.ifftn(torch.mul(torch.fft.fftn(self.field), self.Hz1))
+                self.field = torch.mul(self.field, torch.exp(torch.mul(self.dn0_layers[i], coef)))
+            self.field = torch.fft.ifftn(torch.mul(torch.fft.fftn(self.field), self.Hz1))
 
         self.field = torch.fft.fftn(self.field)
 
         for i in range(plane, self.Nz):
             self.field = torch.mul(self.field, self.Hz2)
 
-        if self.bAber == 0:
-            I = torch.abs(torch.fft.ifftn(self.field * self.pupil)) ** 2
-        if self.bAber == 1:
-            I = torch.abs(
-                torch.fft.ifftn(self.field * self.aber_layers[plane])) ** 2  # aberration is defined per volume (x256)
-        if self.bAber == 2:
-            I = torch.abs(
-                torch.fft.ifftn(self.field * self.aber_layers[naber])) ** 2  # aberration is defined per plane (x100)
+        I = torch.abs(torch.fft.ifftn(self.field * gamma)) ** 2  # aberration is defined per volume (x256)
+
 
         return I
 

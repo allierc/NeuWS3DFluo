@@ -128,7 +128,7 @@ if __name__ == '__main__':
     print (' Saving x_batches y_batches ... ')
 
     torch.save(x_batches,f'./Pics_input/x_batches.pt')
-    torch.save(x_batches, f'./Pics_input/y_batches.pt')
+    torch.save(y_batches, f'./Pics_input/y_batches.pt')
 
 
 

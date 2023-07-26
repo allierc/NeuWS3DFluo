@@ -66,7 +66,7 @@ DEVICE = 'cuda'
 if __name__ == "__main__":
 
 
-    bDynamic = True
+    bDynamic = False
 
 
     parser = argparse.ArgumentParser()
@@ -147,67 +147,9 @@ if __name__ == "__main__":
     # Training loop
     t0 = time.time()
 
-    # for k in range(0,32):
-    #     fig = plt.figure(figsize=(24, 8))
-    #     ax = fig.add_subplot(1, 3, 1)
-    #     im = torch.abs(x_batches[k,0, :, :])
-    #     im = im.detach().cpu().numpy()
-    #     plt.imshow(np.squeeze(im))
-    #     plt.colorbar()
-    #     plt.title('Amplitude SLM')
-    #     ax = fig.add_subplot(1, 3, 2)
-    #     im = torch.angle(x_batches[k,0, :, :])
-    #     im = im.detach().cpu().numpy()
-    #     plt.imshow(np.squeeze(im))
-    #     plt.colorbar()
-    #     plt.title('Phase SLM')
-    #     ax = fig.add_subplot(1, 3, 3)
-    #     im = torch.abs(y_batches[k, :, :])
-    #     im = im.detach().cpu().numpy()
-    #     plt.imshow(np.squeeze(im))
-    #     plt.colorbar()
-    #     plt.title(f'Measurement {k}/100')
-    #     plt.savefig(f"./tmp/data_{k}.tif")
-    #     plt.close()
-
-    # t1 = net.g_im.net1.data
-    # t2 = net.g_im.net2.data
-    # t3 = net.g_im.net3.data
-    # t4 = net.g_im.net4.data
-
-
-    # for k in range(0,32):
-    #     fig = plt.figure(figsize=(12, 12))
-    #     ax = fig.add_subplot(2, 2, 1)
-    #     im = t1[:,:,k]
-    #     im = im.detach().cpu().numpy()
-    #     plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
-    #     plt.colorbar()
-    #     plt.title('p1')
-    #     ax = fig.add_subplot(2, 2, 2)
-    #     im = t2[:,:,k]
-    #     im = im.detach().cpu().numpy()
-    #     plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
-    #     plt.colorbar()
-    #     plt.title('p2')
-    #     ax = fig.add_subplot(2, 2, 3)
-    #     im = t3[:,:,k]
-    #     im = im.detach().cpu().numpy()
-    #     plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
-    #     plt.colorbar()
-    #     plt.title('p3')
-    #     ax = fig.add_subplot(2, 2, 4)
-    #     im = t4[:,:,k]
-    #     im = im.detach().cpu().numpy()
-    #     plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
-    #     plt.colorbar()
-    #     plt.title('p4')
-    #     plt.savefig(f"./tmp/data_{k}.tif")
-    #     plt.close()
-
-
     for epoch in t:
         idxs = torch.randperm(len(dset)).long().to(DEVICE)
+
         for it in range(0, len(dset), args.batch_size):
             idx = idxs[it:it+args.batch_size]
             x_batch, y_batch = x_batches[idx], y_batches[idx]
@@ -342,3 +284,61 @@ if __name__ == "__main__":
         plt.imsave(f'{vis_dir}/final/per_frame/{i:03d}.jpg', a, cmap='rainbow')
         colored_err.append(imageio.imread(f'{vis_dir}/final/per_frame/{i:03d}.jpg'))
     imageio.mimsave(f'{vis_dir}/final/final_aberrations_angle.gif', colored_err, duration=1000*1./30)
+
+    # for k in range(0,32):
+    #     fig = plt.figure(figsize=(24, 8))
+    #     ax = fig.add_subplot(1, 3, 1)
+    #     im = torch.abs(x_batches[k,0, :, :])
+    #     im = im.detach().cpu().numpy()
+    #     plt.imshow(np.squeeze(im))
+    #     plt.colorbar()
+    #     plt.title('Amplitude SLM')
+    #     ax = fig.add_subplot(1, 3, 2)
+    #     im = torch.angle(x_batches[k,0, :, :])
+    #     im = im.detach().cpu().numpy()
+    #     plt.imshow(np.squeeze(im))
+    #     plt.colorbar()
+    #     plt.title('Phase SLM')
+    #     ax = fig.add_subplot(1, 3, 3)
+    #     im = torch.abs(y_batches[k, :, :])
+    #     im = im.detach().cpu().numpy()
+    #     plt.imshow(np.squeeze(im))
+    #     plt.colorbar()
+    #     plt.title(f'Measurement {k}/100')
+    #     plt.savefig(f"./tmp/data_{k}.tif")
+    #     plt.close()
+
+    # t1 = net.g_im.net1.data
+    # t2 = net.g_im.net2.data
+    # t3 = net.g_im.net3.data
+    # t4 = net.g_im.net4.data
+
+
+    # for k in range(0,32):
+    #     fig = plt.figure(figsize=(12, 12))
+    #     ax = fig.add_subplot(2, 2, 1)
+    #     im = t1[:,:,k]
+    #     im = im.detach().cpu().numpy()
+    #     plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
+    #     plt.colorbar()
+    #     plt.title('p1')
+    #     ax = fig.add_subplot(2, 2, 2)
+    #     im = t2[:,:,k]
+    #     im = im.detach().cpu().numpy()
+    #     plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
+    #     plt.colorbar()
+    #     plt.title('p2')
+    #     ax = fig.add_subplot(2, 2, 3)
+    #     im = t3[:,:,k]
+    #     im = im.detach().cpu().numpy()
+    #     plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
+    #     plt.colorbar()
+    #     plt.title('p3')
+    #     ax = fig.add_subplot(2, 2, 4)
+    #     im = t4[:,:,k]
+    #     im = im.detach().cpu().numpy()
+    #     plt.imshow(np.squeeze(im),vmin=-0.5,vmax=0.5)
+    #     plt.colorbar()
+    #     plt.title('p4')
+    #     plt.savefig(f"./tmp/data_{k}.tif")
+    #     plt.close()

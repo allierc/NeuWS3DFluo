@@ -129,7 +129,7 @@ class bpmPytorch(torch.nn.Module):
         muy_inc = (self.muy - fdir[1])
         munu = torch.sqrt(mux_inc ** 2 + muy_inc ** 2).reshape(self.Nx, self.Ny, 1)
         pupil = np.squeeze((munu < (self.na / self.lbda)).float())
-        # imwrite('./temp/pupil.tif', np.array(pupil.cpu()))
+        imwrite('./pupil.tif', np.array(pupil.cpu()))
         self.pupil = torch.complex(
             torch.ones(self.field_shape, dtype=torch.float32, device=self.device, requires_grad=False) * pupil,
             torch.ones(self.field_shape, dtype=torch.float32, device=self.device, requires_grad=False) * 0)
@@ -137,6 +137,7 @@ class bpmPytorch(torch.nn.Module):
         C = (self.lbda/self.nm) * torch.sqrt((self.nm/self.lbda)**2 - mux_inc ** 2 - muy_inc ** 2).reshape(self.Nx, self.Ny)
         C = 1/C*pupil
         C = torch.nan_to_num(C, nan=0.0, posinf=0.0, neginf=0.0)
+        imwrite('./C.tif', np.array(C.cpu()))
         self.C = C
 
     def forward(self, plane=None, phi=None, naber=0):
@@ -160,13 +161,13 @@ class bpmPytorch(torch.nn.Module):
         phi_layers=phi.unbind(dim=2)
 
         for i in range(plane,self.Nz):
-            self.field = torch.mul(self.field, torch.exp(torch.mul(self.dn0_layers[i], coef)))
             if (i==plane):
                 S = torch.mul(self.fluo_layer,torch.exp(phi_layers[i]*1.j))
                 S = torch.fft.ifftn(torch.mul(torch.fft.fftn(S),self.C))
-                self.field = torch.fft.ifftn(torch.mul(torch.fft.fftn(self.field+S),self.Hz1))
+                self.field = torch.mul(S, torch.exp(torch.mul(self.dn0_layers[i], coef)))
             else:
-                self.field = torch.fft.ifftn(torch.mul(torch.fft.fftn(self.field), self.Hz1))
+                self.field = torch.mul(self.field, torch.exp(torch.mul(self.dn0_layers[i], coef)))
+            self.field = torch.fft.ifftn(torch.mul(torch.fft.fftn(self.field), self.Hz1))
 
         self.field = torch.fft.fftn(self.field)
 
