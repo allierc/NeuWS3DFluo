@@ -120,7 +120,7 @@ class G_PatchTensor(nn.Module):
         left = torch.cat([p1, p2], axis=-1)
         right = torch.cat([p3, p4], axis=-1)
 
-        return torch.abs(torch.cat([left, right], axis=-2))
+        return torch.cat([left, right], axis=-2)
 class Embedding(nn.Module):
     def __init__(self, in_channels, N_freqs, logscale=True):
         """
@@ -333,8 +333,7 @@ class StaticDiffuseNet(TemporalZernNet):
         dn_est = self.g_g(g_in)
         dn_est = dn_est.permute(0, 3, 1, 2)       # torch.Size([1, 256, 256, 1]) requires_grad=True
 
-        return torch.squeeze(I_est), torch.squeeze(dn_est)
-
+        return torch.squeeze(torch.abs(I_est)), torch.squeeze(torch.clamp(dn_est,min=0,max=0.2))
 
 class MovingTemporalZernNet(TemporalZernNet):
     def __init__(self, width, PSF_size, phs_layers = 5, use_FFT=True, bsize=8, use_pe=False, static_phase=True):

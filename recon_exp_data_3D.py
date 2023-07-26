@@ -34,7 +34,7 @@ if __name__ == "__main__":
 
     bDynamic = False
 
-    flist = ['Recons3D']
+    flist = ['Recons3D','Recons3D_torch']
     for folder in flist:
         files = glob.glob(f"/home/allierc@hhmi.org/Desktop/Py/NeuWS3D/{folder}/*")
         for f in files:
@@ -206,11 +206,10 @@ if __name__ == "__main__":
                 im_opt.step()
                 ph_opt.step()
 
-                torch.save(S_est, f'./Recons3D/S_est_plane_{plane}_it_{total_it}.pt')
-                torch.save(dn_est, f'./Recons3D/dn_est_plane_{plane}_it_{total_it}.pt')
-
-
                 if total_it == 1000:
+
+                    torch.save(S_est, f'./Recons3D_torch/S_est_plane_{plane}_it_{total_it}.pt')
+                    torch.save(dn_est, f'./Recons3D_torch/dn_est_plane_{plane}_it_{total_it}.pt')
 
                     print(f'   plane: {plane} it: {total_it} loss:{np.round(loss.item(), 6)}')
 
