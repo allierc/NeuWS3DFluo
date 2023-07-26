@@ -238,6 +238,7 @@ class TemporalZernNet(nn.Module):
     def __init__(self, width, PSF_size, phs_layers = 2, use_FFT=True, bsize=8, use_pe=False, static_phase=True):
         super().__init__()
         self.g_im = G_PatchTensor(width)
+        self.dn_im = G_PatchTensor(width)
 
         if not use_pe:
 
@@ -329,9 +330,11 @@ class StaticDiffuseNet(TemporalZernNet):
 
         I_est = self.g_im()     #torch.Size([1, 1, 256, 256])  requires_grad=True
 
-        g_in = self.basis[0:1]      # torch.Size([1, 256, 256, 28]) requires_grad=False
-        dn_est = self.g_g(g_in)
-        dn_est = dn_est.permute(0, 3, 1, 2)       # torch.Size([1, 256, 256, 1]) requires_grad=True
+        dn_est = self.dn_im()
+
+        # g_in = self.basis[0:1]      # torch.Size([1, 256, 256, 28]) requires_grad=False
+        # dn_est = self.g_g(g_in)
+        # dn_est = dn_est.permute(0, 3, 1, 2)       # torch.Size([1, 256, 256, 1]) requires_grad=True
 
         return torch.squeeze(torch.abs(I_est)), torch.squeeze(torch.clamp(dn_est,min=0,max=0.2))
 

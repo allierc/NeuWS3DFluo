@@ -103,7 +103,8 @@ if __name__ == "__main__":
     net.train()
 
     im_opt = torch.optim.Adam(net.g_im.parameters(), lr=args.init_lr)
-    ph_opt = torch.optim.Adam(net.g_g.parameters(), lr=args.init_lr)
+    #ph_opt = torch.optim.Adam(net.g_g.parameters(), lr=args.init_lr)
+    ph_opt = torch.optim.Adam(net.dn_im.parameters(), lr=args.init_lr)
 
 
     table = PrettyTable(["Modules", "Parameters"])
