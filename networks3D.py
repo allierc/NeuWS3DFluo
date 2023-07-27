@@ -106,21 +106,22 @@ class G_Tensor(G_FeatureTensor):
 class G_PatchTensor(nn.Module):
     def __init__(self, width):
         super().__init__()
-        self.net1 = G_Tensor(width // 2, width // 2)
-        self.net2 = G_Tensor(width // 2, width // 2)
-        self.net3 = G_Tensor(width // 2, width // 2)
-        self.net4 = G_Tensor(width // 2, width // 2)
+        self.net1 = G_Tensor(width, width)
+        # self.net2 = G_Tensor(width // 2, width // 2)
+        # self.net3 = G_Tensor(width // 2, width // 2)
+        # self.net4 = G_Tensor(width // 2, width // 2)
 
     def forward(self):
         p1 = self.net1()        # torch.Size([1, 1, 128, 128]) requires_grad=True
-        p2 = self.net2()
-        p3 = self.net3()
-        p4 = self.net4()
 
-        left = torch.cat([p1, p2], axis=-1)
-        right = torch.cat([p3, p4], axis=-1)
+        # p2 = self.net2()
+        # p3 = self.net3()
+        # p4 = self.net4()
+        # left = torch.cat([p1, p2], axis=-1)
+        # right = torch.cat([p3, p4], axis=-1)
+        # return torch.cat([left, right], axis=-2)
 
-        return torch.cat([left, right], axis=-2)
+        return p1
 class Embedding(nn.Module):
     def __init__(self, in_channels, N_freqs, logscale=True):
         """

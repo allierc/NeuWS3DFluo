@@ -168,6 +168,8 @@ if __name__ == "__main__":
             nepoch=5
 
         for epoch in range(nepoch):
+            if plane==255:
+                print(f'    {epoch}')
             for it in range(100):
 
                 total_it += 1
@@ -183,7 +185,7 @@ if __name__ == "__main__":
 
                 y, S_est, dn_est = net(torch.squeeze(x_batch), cur_t)
 
-                loss = F.mse_loss(y, y_batch) + torch.abs(torch.std(dn_est)-1E-1) + torch.abs(torch.mean(dn_est)-0.05)
+                loss = F.mse_loss(y, y_batch) + torch.abs(torch.std(dn_est)-2.5E-1) + torch.abs(torch.mean(dn_est)-0.05) + TV(dn_est)*1E-1 + TV(S_est)*1E-3
 
                 # if epoch>75:
                 #     loss = F.mse_loss(y, y_batch) + I_est.norm(1) / 1E6
@@ -201,7 +203,7 @@ if __name__ == "__main__":
         print(f'   plane: {plane} it: {total_it} loss:{np.round(loss.item(), 6)}')
 
         fig = plt.figure(figsize=(24, 6))
-        #plt.ion()
+        plt.ion()
         ax = fig.add_subplot(1, 6, 1)
         plt.imshow(y_batch.detach().cpu().squeeze(), vmin=0, vmax=0.5, cmap='gray')
         plt.axis('off')
@@ -211,20 +213,19 @@ if __name__ == "__main__":
         plt.axis('off')
         plt.title('Reconstructed measurement')
         ax = fig.add_subplot(1, 6, 3)
-        plt.imshow(S_est.detach().cpu().squeeze(), vmin=0, vmax=1, cmap='gray')
+        plt.imshow((S_est**2).detach().cpu().squeeze(), vmin=0, vmax=2, cmap='gray')
         plt.axis('off')
         plt.title('fluo_est')
         ax = fig.add_subplot(1, 6 , 4)
-        plt.imshow(dn_est.detach().cpu().squeeze(), cmap='rainbow')
+        plt.imshow(dn_est.detach().cpu().squeeze(),vmin=-0.5, vmax=0.75,  cmap='rainbow')
         plt.axis('off')
         plt.title(f'dn_est')
         mmin=torch.min(dn_est).item()
         mmax = torch.max(dn_est).item()
         mstd = torch.std(dn_est).item()
         mmean = torch.mean(dn_est).item()
+        plt.text(10,15,f'min: {np.round(mmin,2)}   max: {np.round(mmax,2)}   {np.round(mmean,3)}+/-{np.round(mstd,3)}')
 
-
-        plt.text(10,15,f'min: {np.round(mmin,2)}   max: {np.round(mmax,2)}   {np.round(mmean,5)}+/-{np.round(mstd,5)}')
         ax = fig.add_subplot(1, 6, 5)
         plt.imshow(target[plane,:,:], vmin=0, vmax=0.5, cmap='gray')
         plt.title(f'fluo target')

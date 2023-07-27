@@ -18,6 +18,47 @@ import tifffile
 
 ang_to_unit = lambda x : ((x / np.pi) + 1) / 2
 
+def TV(params):
+    if len(params.shape) == 2:
+        nb_voxel = (params.shape[0]) * (params.shape[1])
+        sx,sy= grads(params)
+        TVloss = torch.sqrt(sx ** 2 + sy ** 2 + 1e-8).sum()
+    elif len(params.shape)==3:
+        nb_voxel = (params.shape[0]) * (params.shape[1]) * (params.shape[2])
+        [sx, sy, sz] = grads(params)
+        TVloss = torch.sqrt(sx ** 2 + sy ** 2 + sz ** 2 + 1e-8).sum()
+
+    return TVloss / (nb_voxel)
+
+def grads(params):
+
+    if len(params.shape)==2:
+        params_sx = torch.roll(params, -1, 0)
+        params_sy = torch.roll(params, -1, 1)
+
+        sx = -(params - params_sx)
+        sy = -(params - params_sy)
+
+        sx[-1, :] = 0
+        sy[:, -1] = 0
+
+        return [sx,sy]
+
+    elif len(params.shape)==3:
+        params_sx = torch.roll(params, -1, 0)
+        params_sy = torch.roll(params, -1, 1)
+        params_sz = torch.roll(params, -1, 2)
+
+        sx = -(params - params_sx)
+        sy = -(params - params_sy)
+        sz = -(params - params_sz)
+
+        sx[-1, :, :] = 0
+        sy[:, -1, :] = 0
+        sz[:, :, -1] = 0
+
+        return [sx,sy,sz]
+
 
 def load_data_static(N_image=42, N_acqui=100, device=[]):
 
