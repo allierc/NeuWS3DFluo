@@ -336,7 +336,7 @@ class StaticDiffuseNet(TemporalZernNet):
         # dn_est = self.g_g(g_in)
         # dn_est = dn_est.permute(0, 3, 1, 2)       # torch.Size([1, 256, 256, 1]) requires_grad=True
 
-        return torch.squeeze(torch.abs(I_est)), torch.squeeze(torch.clamp(dn_est,min=0,max=0.2))
+        return torch.squeeze(torch.abs(I_est)), torch.clamp(torch.squeeze(dn_est),min=0,max=0.15)
 
 class MovingTemporalZernNet(TemporalZernNet):
     def __init__(self, width, PSF_size, phs_layers = 5, use_FFT=True, bsize=8, use_pe=False, static_phase=True):

@@ -103,7 +103,7 @@ if __name__ == "__main__":
     net.train()
 
     im_opt = torch.optim.Adam(net.g_im.parameters(), lr=args.init_lr)
-    #ph_opt = torch.optim.Adam(net.g_g.parameters(), lr=args.init_lr)
+    # ph_opt = torch.optim.Adam(net.g_g.parameters(), lr=args.init_lr)
     ph_opt = torch.optim.Adam(net.dn_im.parameters(), lr=args.init_lr)
 
 
@@ -150,25 +150,6 @@ if __name__ == "__main__":
     print('y_batches', y_batches.shape)
     print('static_phase', args.static_phase)
     print('dynamic_scene',args.dynamic_scene)
-
-    # plot inputs
-    #
-    # for epoch in t:
-    #     idxs = loop1
-    #     for it in loop2:
-    #         idx = idxs[it:it+args.batch_size]
-    #         x_batch, y_batch = x_batches[idx], y_batches[idx]
-    #
-    #         fig = plt.figure(figsize=(12, 12))
-    #         plt.imshow(y_batch[0, :, :].detach().cpu().numpy(), vmin=0, vmax=2)
-    #         # for k in range(5):
-    #         #     ax = fig.add_subplot(3, 5, 1+k)
-    #         #     plt.imshow(torch.abs(x_batch[k,0,:,:]).detach().cpu().numpy(),vmin=0,vmax=1)
-    #         #     ax = fig.add_subplot(3, 5, 6+k)
-    #         #     plt.imshow(torch.angle(x_batch[k,0,:,:]).detach().cpu().numpy(),vmin=-3.14,vmax=3.14)
-    #         #     ax = fig.add_subplot(3, 5, 11+k)
-    #         #     plt.imshow(y_batch[k,:,:].detach().cpu().numpy(),vmin=0,vmax=2)
-    #         plt.show()
 
     total_it = 0
     print('Reconstructing ...  ')
@@ -232,13 +213,17 @@ if __name__ == "__main__":
                     plt.imshow(dn_est.detach().cpu().squeeze(), cmap='rainbow')
                     plt.axis('off')
                     plt.title(f'dn_est')
+                    mmin=torch.min(dn_est).item()
+                    mmax = torch.max(dn_est).item()
+                    plt.text(10,15,f'min: {np.round(mmin,2)}   max: {np.round(mmax,2)}')
                     ax = fig.add_subplot(1, 6, 5)
                     plt.imshow(target[plane,:,:], vmin=0, vmax=0.5, cmap='gray')
                     plt.title(f'fluo target')
                     ax = fig.add_subplot(1, 6,6)
-                    plt.imshow(dn[plane,:,:], vmin=0, vmax=0.25, cmap='gray')
+                    plt.imshow(dn[plane,:,:], vmin=0, vmax=0.1, cmap='gray')
                     plt.title(f'dn target')
                     plt.tight_layout()
+
 
                     plt.savefig(f'./Recons3D/plane_{plane}_it_{total_it}.jpg')
                     plt.clf()
