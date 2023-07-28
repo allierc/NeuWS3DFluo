@@ -166,7 +166,7 @@ if __name__ == "__main__":
 
                 y, S_est, dn_est = net(torch.squeeze(x_batch), cur_t)
 
-                loss = F.mse_loss(y, y_batch) + torch.abs(torch.std(dn_est)-1E-1) + torch.abs(torch.mean(dn_est)-0.05) + 0*TV(dn_est)*1E-2 + TV(S_est)*1E-4
+                loss = F.mse_loss(y, y_batch) + TV(S_est)*1E-4 # + torch.abs(torch.std(dn_est)-1E-1) + torch.abs(torch.mean(dn_est)-0.05) + 0*TV(dn_est)*1E-2
 
                 loss.backward()
 

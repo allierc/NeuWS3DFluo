@@ -283,7 +283,9 @@ class TemporalZernNet(nn.Module):
                         'load_data': False}
 
         self.Niter = 20
-        self.bpm = bpm3Dfluo(bpm_config=self.bpm_config)
+        # self.bpm = bpm3Dfluo(bpm_config=self.bpm_config)
+        self.bpm = bpm3Dfluo_PSF(bpm_config=self.bpm_config)
+
         self.phiL = torch.rand([self.bpm.Nx, self.bpm.Ny, self.Niter*50], dtype=torch.float32, requires_grad=False, device='cuda:0') * 2 * np.pi
 
     def forward(self, x_batch, t):
