@@ -31,19 +31,19 @@ class G_Renderer(nn.Module):
         for _ in range(num_layers):
             if len(layers) == 0:
                 ll=nn.Linear(in_dim, hidden_dim)
-                nn.init.normal_(ll.weight, std=0.5)
-                nn.init.zeros_(ll.bias)
+                # nn.init.normal_(ll.weight, std=0.5)
+                # nn.init.zeros_(ll.bias)
                 layers.append(ll)
             else:
                 ll=nn.Linear(hidden_dim, hidden_dim)
-                nn.init.normal_(ll.weight, std=0.5)
-                nn.init.zeros_(ll.bias)
+                # nn.init.normal_(ll.weight, std=0.5)
+                # nn.init.zeros_(ll.bias)
                 layers.append(ll)
             #layers.append(nn.LayerNorm(hidden_dim))
             layers.append(act_fn)
         ll=nn.Linear(hidden_dim, out_dim)
-        nn.init.normal_(ll.weight, std=0.5)
-        nn.init.zeros_(ll.bias)
+        # nn.init.normal_(ll.weight, std=0.5)
+        # nn.init.zeros_(ll.bias)
         layers.append(ll)
         self.net = nn.Sequential(*layers)
 

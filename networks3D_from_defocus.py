@@ -42,8 +42,8 @@ class G_Renderer(nn.Module):
             #layers.append(nn.LayerNorm(hidden_dim))
             layers.append(act_fn)
         ll=nn.Linear(hidden_dim, out_dim)
-        nn.init.normal_(ll.weight, std=0.5)
-        nn.init.zeros_(ll.bias)
+        # nn.init.normal_(ll.weight, std=0.5)
+        # nn.init.zeros_(ll.bias)
         layers.append(ll)
         self.net = nn.Sequential(*layers)
 
@@ -292,8 +292,9 @@ class TemporalZernNet(nn.Module):
                         'load_data': False}
 
         self.Niter = 20
+        self.bpm = bpm3Dfluo_defocus(bpm_config=self.bpm_config)
         # self.bpm = bpm3Dfluo(bpm_config=self.bpm_config)
-        self.bpm = bpm3Dfluo_PSF(bpm_config=self.bpm_config)
+        # self.bpm = bpm3Dfluo_PSF(bpm_config=self.bpm_config)
 
         self.phiL = torch.rand([self.bpm.Nx, self.bpm.Ny, self.Niter*50], dtype=torch.float32, requires_grad=False, device='cuda:0') * 2 * np.pi
 
@@ -314,7 +315,7 @@ class TemporalZernNet(nn.Module):
 
         I = I/self.Niter
 
-        # self.bpm.dn0.data[int(t)] = torch.squeeze(dn_est.clone())
+        self.bpm.dn0.data[int(t)] = torch.squeeze(dn_est.clone())
 
         return I, S_est, dn_est
 class StaticDiffuseNet(TemporalZernNet):
@@ -341,11 +342,11 @@ class StaticDiffuseNet(TemporalZernNet):
 
         I_est = self.g_im()     #torch.Size([1, 1, 256, 256])  requires_grad=True
 
-        # dn_est = self.dn_im()
+        dn_est = self.dn_im()
 
-        g_in = self.basis[0:1]      # torch.Size([1, 256, 256, 28]) requires_grad=False
-        dn_est = self.g_g(g_in)
-        dn_est = dn_est.permute(0, 3, 1, 2)       # torch.Size([1, 256, 256, 1]) requires_grad=True
+        # g_in = self.basis[0:1]      # torch.Size([1, 256, 256, 28]) requires_grad=False
+        # dn_est = self.g_g(g_in)
+        # dn_est = dn_est.permute(0, 3, 1, 2)       # torch.Size([1, 256, 256, 1]) requires_grad=True
 
         return torch.squeeze(torch.abs(I_est)), torch.squeeze(dn_est)
 
