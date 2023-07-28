@@ -44,7 +44,7 @@ class bpm3Dfluo_PSF(torch.nn.Module):
         self.Npixels = self.Nx * self.Ny
         self.field_shape = (self.Nx, self.Ny)
 
-        null_obj = np.zeros((self.Nx, self.Ny, self.Nz,))
+        null_obj = np.random.randn(self.Nx, self.Ny, self.Nz) * 0.5
         self.dn0 = torch.tensor(null_obj, device=self.device, dtype=self.dtype, requires_grad=False)
         self.fluo = torch.tensor(null_obj, device=self.device, dtype=self.dtype, requires_grad=False)
 
@@ -102,19 +102,16 @@ class bpm3Dfluo_PSF(torch.nn.Module):
         for i in range(plane,self.Nz):
             if (i==plane):
                 S = torch.mul(fluo_unknown,torch.exp(phi*1.j))
-                S = torch.fft.ifftn(torch.mul(torch.fft.fftn(S),self.C))
-            self.field = torch.mul(self.field, torch.exp(torch.mul(self.dn0_layers[i], coef)))
-            self.field = torch.fft.ifftn(torch.mul(torch.fft.fftn(self.field), self.Hz1))
-
-        self.field = torch.fft.fftn(self.field)
+                S = torch.mul(torch.fft.fftn(S),self.C)
+                self.field = S
+            self.field = torch.mul(self.field, self.Hz1)
 
         for i in range(plane, self.Nz):
             self.field = torch.mul(self.field, self.Hz2)
 
+        self.field = torch.mul( self.field, torch.exp(torch.mul(dn_unknown, 1.j)))
 
-        PSF = self.field = torch.exp(torch.mul(dn_unknown,1.j))
-
-        I = torch.abs(torch.fft.ifftn(self.field * gamma * PSF)) ** 2  # aberration is defined per volume (x256)
+        I = torch.abs(torch.fft.ifftn(self.field * gamma)) ** 2  # aberration is defined per volume (x256)
 
 
         return I

@@ -14,7 +14,7 @@ torch.cuda.empty_cache()
 
 import torch.nn.functional as F
 from torch.fft import fft2, fftshift
-from networks3D import *
+from networks3D_PSF import *
 from utils import *
 from dataset import *
 import matplotlib.pyplot as plt
@@ -120,8 +120,8 @@ if __name__ == "__main__":
     net.train()
 
     im_opt = torch.optim.Adam(net.g_im.parameters(), lr=args.init_lr*10)
-    # ph_opt = torch.optim.Adam(net.g_g.parameters(), lr=args.init_lr)
-    ph_opt = torch.optim.Adam(net.dn_im.parameters(), lr=args.init_lr)
+    ph_opt = torch.optim.Adam(net.g_g.parameters(), lr=args.init_lr)
+    #ph_opt = torch.optim.Adam(net.dn_im.parameters(), lr=args.init_lr)
 
     # im_sche = torch.optim.lr_scheduler.CosineAnnealingLR(im_opt, T_max = args.num_epochs, eta_min=args.final_lr)
     # ph_sche = torch.optim.lr_scheduler.CosineAnnealingLR(ph_opt, T_max = args.num_epochs, eta_min=args.final_lr)
@@ -150,8 +150,11 @@ if __name__ == "__main__":
 
     for plane in range(255, -1, -1):
         total_it = 0
-
-        for epoch in range(10):
+        if plane==255:
+            nepoch=25
+        else:
+            nepoch=10
+        for epoch in range(nepoch):
             if (plane==255) & (epoch>0):
                 print(f'    {epoch}     loss:{np.round(loss.item(), 6)}  ')
             for it in range(100):
@@ -176,46 +179,48 @@ if __name__ == "__main__":
                 ph_opt.step()
 
 
+                if ((total_it%10==0) & (epoch<2)) | (it==99):
+
+                    fig = plt.figure(figsize=(24, 6))
+                    # plt.ion()
+                    ax = fig.add_subplot(1, 6, 1)
+                    plt.imshow(y_batch.detach().cpu().squeeze(), vmin=0, vmax=0.5, cmap='gray')
+                    plt.axis('off')
+                    plt.title('Simulated measurement')
+                    ax = fig.add_subplot(1, 6, 2)
+                    plt.imshow(y.detach().cpu().squeeze(), vmin=0, vmax=0.5, cmap='gray')
+                    plt.axis('off')
+                    plt.title('Reconstructed measurement')
+                    ax = fig.add_subplot(1, 6, 3)
+                    plt.imshow((S_est ** 2).detach().cpu().squeeze(), vmin=0, vmax=2, cmap='gray')
+                    plt.axis('off')
+                    plt.title('fluo_est')
+                    ax = fig.add_subplot(1, 6, 4)
+                    plt.imshow(dn_est.detach().cpu().squeeze(), vmin=-3.14, vmax=3.14, cmap='rainbow')
+                    plt.axis('off')
+                    plt.title(f'dn_est')
+                    mmin = torch.min(dn_est).item()
+                    mmax = torch.max(dn_est).item()
+                    mstd = torch.std(dn_est).item()
+                    mmean = torch.mean(dn_est).item()
+                    # plt.text(10,15,f'min: {np.round(mmin,2)}   max: {np.round(mmax,2)}   {np.round(mmean,3)}+/-{np.round(mstd,3)}')
+                    ax = fig.add_subplot(1, 6, 5)
+                    plt.imshow(target[plane, :, :], vmin=0, vmax=0.5, cmap='gray')
+                    plt.title(f'fluo target')
+                    plt.axis('off')
+                    ax = fig.add_subplot(1, 6, 6)
+                    plt.imshow(dn[plane, :, :], vmin=0, vmax=0.1, cmap='gray')
+                    plt.title(f'dn target')
+                    plt.axis('off')
+                    plt.tight_layout()
+                    plt.savefig(f'./Recons3D/plane_{plane}_it_{total_it}.jpg')
+                    plt.clf()
+
 
         torch.save(S_est, f'./Recons3D_torch/S_est_plane_{plane}_it_{total_it}.pt')
         torch.save(dn_est, f'./Recons3D_torch/dn_est_plane_{plane}_it_{total_it}.pt')
 
         print(f'   plane: {plane} it: {total_it} loss:{np.round(loss.item(), 6)}')
-
-        fig = plt.figure(figsize=(24, 6))
-        # plt.ion()
-        ax = fig.add_subplot(1, 6, 1)
-        plt.imshow(y_batch.detach().cpu().squeeze(), vmin=0, vmax=0.5, cmap='gray')
-        plt.axis('off')
-        plt.title('Simulated measurement')
-        ax = fig.add_subplot(1, 6, 2)
-        plt.imshow(y.detach().cpu().squeeze(), vmin=0, vmax=0.5, cmap='gray')
-        plt.axis('off')
-        plt.title('Reconstructed measurement')
-        ax = fig.add_subplot(1, 6, 3)
-        plt.imshow((S_est ** 2).detach().cpu().squeeze(), vmin=0, vmax=2, cmap='gray')
-        plt.axis('off')
-        plt.title('fluo_est')
-        ax = fig.add_subplot(1, 6, 4)
-        plt.imshow(dn_est.detach().cpu().squeeze(), vmin=-3.14, vmax=3.14, cmap='rainbow')
-        plt.axis('off')
-        plt.title(f'dn_est')
-        mmin = torch.min(dn_est).item()
-        mmax = torch.max(dn_est).item()
-        mstd = torch.std(dn_est).item()
-        mmean = torch.mean(dn_est).item()
-        # plt.text(10,15,f'min: {np.round(mmin,2)}   max: {np.round(mmax,2)}   {np.round(mmean,3)}+/-{np.round(mstd,3)}')
-        ax = fig.add_subplot(1, 6, 5)
-        plt.imshow(target[plane, :, :], vmin=0, vmax=0.5, cmap='gray')
-        plt.title(f'fluo target')
-        plt.axis('off')
-        ax = fig.add_subplot(1, 6, 6)
-        plt.imshow(dn[plane, :, :], vmin=0, vmax=0.1, cmap='gray')
-        plt.title(f'dn target')
-        plt.axis('off')
-        plt.tight_layout()
-        plt.savefig(f'./Recons3D/plane_{plane}_it_{total_it}.jpg')
-        plt.clf()
 
 
 
