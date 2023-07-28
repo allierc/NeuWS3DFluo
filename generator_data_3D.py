@@ -18,7 +18,7 @@ from tifffile import imwrite
 from tifffile import imread
 import logging
 from utils import compute_zernike_basis, fft_2xPad_Conv2D
-from solve_data_3D import bpmPytorch
+from solve_data_3D import bpmPytorch, bpmPytorch_defocus
 import torch.nn.functional as f
 from torch.fft import fft2, fftshift
 from shutil import copyfile
@@ -54,10 +54,15 @@ if __name__ == '__main__':
                     'num_feats': 4,
                     'out_path': "./Recons3D/"}
 
+    bDefocus = True
+
     copyfile(os.path.realpath(__file__), os.path.join(f'./Pics_input/', 'generating_code.py'))
 
     torch.cuda.empty_cache()
-    bpm = bpmPytorch(model_config)      # just to get the pupil function
+    if bDefocus:
+        bpm = bpmPytorch_defocus(model_config)  # just to get the pupil function
+    else:
+        bpm = bpmPytorch(model_config)      # just to get the pupil function
 
     new_obj = np.zeros((bpm.Nz, bpm.Nx, bpm.Ny))
     tmp = imread(f'./Pics_input/target.tif')
@@ -99,8 +104,14 @@ if __name__ == '__main__':
 
         x_batches[:, plane:plane+1, :, :] = out_cpx[:,None,:,:]
 
-        torch.save(out_cpx, f'./Pics_input/stack/aberration_plane{plane}.pt')
-        imwrite(f'./Pics_input/stack/aberration_plane{plane}.tif', torch.angle(out_cpx).detach().cpu().numpy())
+        if bDefocus:
+            if plane==255:
+                torch.save(out_cpx, f'./Pics_input/stack_defocus/defocus_aberration_plane{plane}.pt')
+                imwrite(f'./Pics_input/stack_defocus/defocus_aberration_plane{plane}.tif', torch.angle(out_cpx).detach().cpu().numpy())
+        else:
+            torch.save(out_cpx, f'./Pics_input/stack/aberration_plane{plane}.pt')
+            imwrite(f'./Pics_input/stack/aberration_plane{plane}.tif',
+                    torch.angle(out_cpx).detach().cpu().numpy())
 
         bpm.aber = out_cpx
         bpm.aber_layers = bpm.aber.unbind(dim=0)
@@ -123,12 +134,20 @@ if __name__ == '__main__':
         y_batches[:, plane:plane + 1, :, :] = tmp[:, None, :, :]
 
         tmp = np.moveaxis(Istack, -1, 0)
-        imwrite(f'./Pics_input/stack/input_aberration_plane{plane}.tif', tmp )
+        if bDefocus:
+            if plane==255:
+                imwrite(f'./Pics_input/stack_defocus/input_defocus_aberration_plane{plane}.tif', tmp)
+        else:
+            imwrite(f'./Pics_input/stack/input_aberration_plane{plane}.tif', tmp )
 
     print (' Saving x_batches y_batches ... ')
 
-    torch.save(x_batches,f'./Pics_input/x_batches.pt')
-    torch.save(y_batches, f'./Pics_input/y_batches.pt')
+    if bDefocus:
+        torch.save(x_batches,f'./Pics_input/defocus_x_batches.pt')
+        torch.save(y_batches, f'./Pics_input/defocus_y_batches.pt')
+    else:
+        torch.save(x_batches,f'./Pics_input/x_batches.pt')
+        torch.save(y_batches, f'./Pics_input/y_batches.pt')
 
 
 

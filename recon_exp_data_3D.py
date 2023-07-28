@@ -87,6 +87,23 @@ if __name__ == "__main__":
     # x_batches = torch.cat(dset.xs, axis=0).unsqueeze(1).to(DEVICE)
     # y_batches = torch.stack(dset.ys, axis=0).to(DEVICE)
 
+    t0 = time.time()
+
+    N_image=50
+    N_acqui=100
+
+    dset = BatchDataset(data_dir, num=args.num_t, im_prefix=args.im_prefix, max_intensity=args.max_intensity,zero_freq=args.zero_freq)
+
+    print('Loading x_batches y_batches ...')
+    x_batches = torch.load(f'./Pics_input/x_batches.pt')
+    y_batches = torch.load(f'./Pics_input/y_batches.pt')
+    print('done')
+
+    print('x_batches', x_batches.shape)
+    print('y_batches', y_batches.shape)
+    print('static_phase', args.static_phase)
+    print('dynamic_scene',args.dynamic_scene)
+
     if bDynamic:
         args.dynamic_scene = True
         args.static_phase = False
@@ -103,8 +120,12 @@ if __name__ == "__main__":
     net.train()
 
     im_opt = torch.optim.Adam(net.g_im.parameters(), lr=args.init_lr)
-    #ph_opt = torch.optim.Adam(net.g_g.parameters(), lr=args.init_lr)
-    ph_opt = torch.optim.Adam(net.dn_im.parameters(), lr=args.init_lr)
+    ph_opt = torch.optim.Adam(net.g_g.parameters(), lr=args.init_lr)
+    #ph_opt = torch.optim.Adam(net.dn_im.parameters(), lr=args.init_lr)
+
+    # im_sche = torch.optim.lr_scheduler.CosineAnnealingLR(im_opt, T_max = args.num_epochs, eta_min=args.final_lr)
+    # ph_sche = torch.optim.lr_scheduler.CosineAnnealingLR(ph_opt, T_max = args.num_epochs, eta_min=args.final_lr)
+    # optimizer = torch.optim.Adam(net.parameters(), lr=args.init_lr)  # , weight_decay=5e-3)
 
 
     table = PrettyTable(["Modules", "Parameters"])
@@ -118,39 +139,6 @@ if __name__ == "__main__":
     print(table)
     print(f"Total Trainable Params: {total_params}")
 
-
-    # im_sche = torch.optim.lr_scheduler.CosineAnnealingLR(im_opt, T_max = args.num_epochs, eta_min=args.final_lr)
-    # ph_sche = torch.optim.lr_scheduler.CosineAnnealingLR(ph_opt, T_max = args.num_epochs, eta_min=args.final_lr)
-    # optimizer = torch.optim.Adam(net.parameters(), lr=args.init_lr)  # , weight_decay=5e-3)
-
-    ############
-    # Training loop
-    t0 = time.time()
-
-    N_image=50
-    N_acqui=100
-
-    dset = BatchDataset(data_dir, num=args.num_t, im_prefix=args.im_prefix, max_intensity=args.max_intensity,zero_freq=args.zero_freq)
-
-    # if bDynamic:
-    #     x_batches,y_batches = load_data_dynamic(N_image=N_image, N_acqui=N_acqui, batch_size=args.batch_size, device=DEVICE)
-    #     loop1=torch.range(0,len(dset)).long().to(DEVICE)
-    #     loop2=range(0, len(dset), args.batch_size)
-    # else:
-    #     x_batches, y_batches = load_data_static(N_image=N_image, N_acqui=N_acqui, device=DEVICE)
-    #     loop1=torch.randperm(len(dset)).long().to(DEVICE)
-    #     loop2=range(0, len(dset), args.batch_size)
-
-    print('Loading x_batches y_batches ...')
-    x_batches = torch.load(f'./Pics_input/x_batches.pt')
-    y_batches = torch.load(f'./Pics_input/y_batches.pt')
-    print('done')
-
-    print('x_batches', x_batches.shape)
-    print('y_batches', y_batches.shape)
-    print('static_phase', args.static_phase)
-    print('dynamic_scene',args.dynamic_scene)
-
     total_it = 0
     print('Reconstructing ...  ')
     print(' ')
@@ -161,13 +149,7 @@ if __name__ == "__main__":
 
     for plane in range(255, -1, -1):
         total_it = 0
-
-        if plane == 255:
-            nepoch=10
-        else:
-            nepoch=5
-
-        for epoch in range(nepoch):
+        for epoch in range(10):
             if plane==255:
                 print(f'    {epoch}')
             for it in range(100):
@@ -178,18 +160,13 @@ if __name__ == "__main__":
 
                 y_batch = torch.squeeze(y_batch) * 10
 
-                cur_t = (it / (args.num_t - 1)) - 0.5
                 cur_t = plane
 
                 im_opt.zero_grad();  ph_opt.zero_grad()
 
                 y, S_est, dn_est = net(torch.squeeze(x_batch), cur_t)
 
-                loss = F.mse_loss(y, y_batch) + torch.abs(torch.std(dn_est)-2.5E-1) + torch.abs(torch.mean(dn_est)-0.05) + TV(dn_est)*1E-1 + TV(S_est)*1E-3
-
-                # if epoch>75:
-                #     loss = F.mse_loss(y, y_batch) + I_est.norm(1) / 1E6
-                #    loss = mse_loss + TV(I_est)/1E9
+                loss = F.mse_loss(y, y_batch) + torch.abs(torch.std(dn_est)-1E-1) + torch.abs(torch.mean(dn_est)-0.05) + 0*TV(dn_est)*1E-2 + TV(S_est)*1E-4
 
                 loss.backward()
 
@@ -203,7 +180,7 @@ if __name__ == "__main__":
         print(f'   plane: {plane} it: {total_it} loss:{np.round(loss.item(), 6)}')
 
         fig = plt.figure(figsize=(24, 6))
-        plt.ion()
+        #plt.ion()
         ax = fig.add_subplot(1, 6, 1)
         plt.imshow(y_batch.detach().cpu().squeeze(), vmin=0, vmax=0.5, cmap='gray')
         plt.axis('off')
@@ -217,24 +194,23 @@ if __name__ == "__main__":
         plt.axis('off')
         plt.title('fluo_est')
         ax = fig.add_subplot(1, 6 , 4)
-        plt.imshow(dn_est.detach().cpu().squeeze(),vmin=-0.5, vmax=0.75,  cmap='rainbow')
+        plt.imshow(dn_est.detach().cpu().squeeze(),vmin=-0.25, vmax=0.25,  cmap='rainbow')
         plt.axis('off')
         plt.title(f'dn_est')
         mmin=torch.min(dn_est).item()
         mmax = torch.max(dn_est).item()
         mstd = torch.std(dn_est).item()
         mmean = torch.mean(dn_est).item()
-        plt.text(10,15,f'min: {np.round(mmin,2)}   max: {np.round(mmax,2)}   {np.round(mmean,3)}+/-{np.round(mstd,3)}')
-
+        #plt.text(10,15,f'min: {np.round(mmin,2)}   max: {np.round(mmax,2)}   {np.round(mmean,3)}+/-{np.round(mstd,3)}')
         ax = fig.add_subplot(1, 6, 5)
         plt.imshow(target[plane,:,:], vmin=0, vmax=0.5, cmap='gray')
         plt.title(f'fluo target')
+        plt.axis('off')
         ax = fig.add_subplot(1, 6,6)
         plt.imshow(dn[plane,:,:], vmin=0, vmax=0.1, cmap='gray')
         plt.title(f'dn target')
+        plt.axis('off')
         plt.tight_layout()
-
-
         plt.savefig(f'./Recons3D/plane_{plane}_it_{total_it}.jpg')
         plt.clf()
 
