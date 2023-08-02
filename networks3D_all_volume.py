@@ -26,6 +26,9 @@ class sine_act(nn.Module):
 class G_Renderer(nn.Module):
     def __init__(self, in_dim=32, hidden_dim=32, num_layers=2, out_dim=1):
         super().__init__()
+
+        in_dim = in_dim + 10 #z_embedding
+
         act_fn = nn.ReLU()
         layers = []
         for _ in range(num_layers):
@@ -51,6 +54,7 @@ class G_Renderer(nn.Module):
         out = self.net(x)
 
         return out
+
 class G_FeatureTensor(nn.Module):
     def __init__(self, x_dim, y_dim, num_feats = 32, ds_factor = 1):
         super().__init__()
@@ -80,28 +84,12 @@ class G_FeatureTensor(nn.Module):
 
     def sample(self):
 
-        # import matplotlib.pyplot as plt
-        # plt.ion()
-        # t = (1.0 - self.lerp_weights[:, 0:1]) * (1.0 - self.lerp_weights[:, 1:2])
-        # t = self.lerp_weights[:,0:1] * (1.0 - self.lerp_weights[:,1:2])
-        # t = (1.0 - self.lerp_weights[:,0:1]) * self.lerp_weights[:,1:2]
-        # t =  self.lerp_weights[:,0:1]*self.lerp_weights[:, 0:1] * self.lerp_weights[:, 1:2]
-        # t = t.reshape([-1, 1, self.x_dim, self.y_dim])
-        # t = t.detach().cpu().numpy()
-        # plt.imshow(np.squeeze(t))
-
-        # return (
-		# 		self.data[self.y0, self.x0] * (1.0 - self.lerp_weights[:,0:1]) * (1.0 - self.lerp_weights[:,1:2]) +
-		# 		self.data[self.y0, self.x1] * self.lerp_weights[:,0:1] * (1.0 - self.lerp_weights[:,1:2]) +
-		# 		self.data[self.y1, self.x0] * (1.0 - self.lerp_weights[:,0:1]) * self.lerp_weights[:,1:2] +
-		# 		self.data[self.y1, self.x1] * self.lerp_weights[:,0:1] * self.lerp_weights[:,1:2]
-		# 	)
-
         return (self.data[self.x0, self.y0])        # no input mixing
 
 
     def forward(self):
         return self.sample()
+
 class G_Tensor(G_FeatureTensor):
     def __init__(self, x_dim, y_dim=None):
         if y_dim is None:
@@ -109,28 +97,22 @@ class G_Tensor(G_FeatureTensor):
         super().__init__(x_dim, y_dim)
         self.renderer = G_Renderer()
 
-    def forward(self):
-        feats = self.sample()   # torch.Size([16384, 32]) 128*128*32 requires_grad True
-        return self.renderer(feats).reshape([-1, 1, self.x_dim, self.y_dim])
+    def forward(self, z_embedding=[]):
+
+        feats = self.sample()
+        # torch.Size([16384, 32]) 128*128*32 requires_grad True
+        return self.renderer(torch.cat((feats,z_embedding),dim=1)).reshape([-1, 1, self.x_dim, self.y_dim])
+
 class G_PatchTensor(nn.Module):
     def __init__(self, width):
         super().__init__()
         self.net1 = G_Tensor(width, width)
-        # self.net2 = G_Tensor(width // 2, width // 2)
-        # self.net3 = G_Tensor(width // 2, width // 2)
-        # self.net4 = G_Tensor(width // 2, width // 2)
 
-    def forward(self):
-        p1 = self.net1()        # torch.Size([1, 1, 128, 128]) requires_grad=True
-
-        # p2 = self.net2()
-        # p3 = self.net3()
-        # p4 = self.net4()
-        # left = torch.cat([p1, p2], axis=-1)
-        # right = torch.cat([p3, p4], axis=-1)
-        # return torch.cat([left, right], axis=-2)
+    def forward(self, z_embedding=[]):
+        p1 = self.net1(z_embedding=z_embedding)        # torch.Size([1, 1, 128, 128]) requires_grad=True
 
         return p1
+
 class Embedding(nn.Module):
     def __init__(self, in_channels, N_freqs, logscale=True):
         """
@@ -164,6 +146,7 @@ class Embedding(nn.Module):
                 out += [func(freq*x)]
 
         return torch.cat(out, -1)
+
 class G_SpaceTime(nn.Module):
     def __init__(self, x_width, y_width, bsize=8):
         super().__init__()
@@ -192,17 +175,6 @@ class G_SpaceTime(nn.Module):
 
         self.warp_net = nn.Sequential(*layers)
 
-        # table = PrettyTable(["Modules", "Parameters"])
-        # total_params = 0
-        # for name, parameter in self.spatial_net.named_parameters():
-        #     if not parameter.requires_grad:
-        #         continue
-        #     param = parameter.numel()
-        #     table.add_row([name, param])
-        #     total_params += param
-        # print(table)
-        # print(f"Total Trainable Params: {total_params}")
-
         xs = torch.linspace(-1, 1, steps=x_width)
         ys = torch.linspace(-1, 1, steps=y_width)
         x, y = torch.meshgrid(xs, ys, indexing='xy')
@@ -212,16 +184,6 @@ class G_SpaceTime(nn.Module):
         )
         self.renderer = G_Renderer(in_dim=hidden_dim, hidden_dim=hidden_dim, num_layers=3)
 
-        # table = PrettyTable(["Modules", "Parameters"])
-        # total_params = 0
-        # for name, parameter in self.renderer.named_parameters():
-        #     if not parameter.requires_grad:
-        #         continue
-        #     param = parameter.numel()
-        #     table.add_row([name, param])
-        #     total_params += param
-        # print(table)
-        # print(f"Total Trainable Params: {total_params}")
 
     def forward(self, t):
         spatial_feats = self.spatial_net().unsqueeze(0).repeat(t.shape[0], 1, 1)
@@ -244,9 +206,11 @@ class G_SpaceTime(nn.Module):
         output = F.leaky_relu(output, 0.001)
 
         return output
+
 class TemporalZernNet(nn.Module):
     def __init__(self, width, PSF_size, phs_layers = 2, use_FFT=True, bsize=8, use_pe=False, static_phase=True, phs_draw=10):
         super().__init__()
+
         self.g_im = G_PatchTensor(width)
         self.dn_im = G_PatchTensor(width)
 
@@ -293,7 +257,7 @@ class TemporalZernNet(nn.Module):
                         'load_data': False}
 
         self.Niter = phs_draw
-        self.bpm = bpm3Dfluo(bpm_config=self.bpm_config)
+        self.bpm = bpm3Dfluo_all_volume(bpm_config=self.bpm_config)
         # self.bpm = bpm3Dfluo_PSF(bpm_config=self.bpm_config)
 
         self.phiL = torch.rand([self.bpm.Nx, self.bpm.Ny, self.Niter*50], dtype=torch.float32, requires_grad=False, device='cuda:0') * 2 * np.pi
@@ -315,9 +279,8 @@ class TemporalZernNet(nn.Module):
 
         I = I/self.Niter
 
-        self.bpm.dn0.data[int(t)] = torch.squeeze(Phi_estimated.clone())
-
         return I, F_estimated, Phi_estimated
+
 class StaticDiffuseNet(TemporalZernNet):
     def __init__(self, width, PSF_size, phs_layers = 2, use_FFT=True, bsize=8, use_pe=False, static_phase=True, phs_draw=10):
         super().__init__(width, PSF_size, phs_layers = phs_layers, use_FFT=use_FFT, bsize=bsize, use_pe=use_pe, phs_draw=phs_draw)
@@ -338,11 +301,21 @@ class StaticDiffuseNet(TemporalZernNet):
         self.g_g = nn.Sequential(*layers)
         self.static_phase = static_phase
 
+        self.z_embedding = torch.load(f'./Pics_input/z_embedding_L_10.pt')
+        self.z_embedding = self.z_embedding.reshape(65536, 256, 10)
+
     def get_estimates(self, t):
 
-        I_est = self.g_im()     #torch.Size([1, 1, 256, 256])  requires_grad=True
 
-        Phi_estimated = self.dn_im()
+        z_embedding=torch.squeeze(self.z_embedding[:,t,:])
+
+        I_est = self.g_im(z_embedding=z_embedding)     #torch.Size([1, 1, 256, 256])  requires_grad=True
+
+        Phi_estimated = torch.zeros(256,256,256,device='cuda:0')
+
+        for dn_plane in range (t,256):
+                z_embedding = torch.squeeze(self.z_embedding[:, dn_plane, :])
+                Phi_estimated[dn_plane,:,:] = torch.squeeze(self.dn_im(z_embedding=z_embedding))
 
         # g_in = self.basis[0:1]      # torch.Size([1, 256, 256, 28]) requires_grad=False
         # Phi_estimated = self.g_g(g_in)
@@ -350,160 +323,6 @@ class StaticDiffuseNet(TemporalZernNet):
 
         return torch.squeeze(torch.abs(I_est)), torch.squeeze(Phi_estimated)
 
-class MovingTemporalZernNet(TemporalZernNet):
-    def __init__(self, width, PSF_size, phs_layers = 5, use_FFT=True, bsize=8, use_pe=False, static_phase=True):
-        super().__init__(width, PSF_size, use_pe=False, phs_layers=phs_layers, use_FFT=use_FFT, bsize=bsize)
-        self.g_im = G_SpaceTime(width, width, bsize)
-
-        in_dim = self.basis.shape[-1]
-
-        t_dim = 3 if not static_phase else 0
-        hidden_dim = 32
-        act_fn = nn.LeakyReLU(inplace=True)
-        layers = []
-        layers.append(nn.Linear(in_dim + t_dim, hidden_dim))
-        for _ in range(phs_layers):
-            ll=nn.Linear(hidden_dim, hidden_dim)
-            nn.init.normal_(ll.weight, std=0.5)
-            nn.init.zeros_(ll.bias)
-            layers.append(ll)
-            layers.append(act_fn)
-        ll=nn.Linear(hidden_dim, 1)
-        nn.init.normal_(ll.weight, std=0.5)
-        nn.init.zeros_(ll.bias)
-        layers.append(ll)
-        self.g_g = nn.Sequential(*layers)
-        self.static_phase = static_phase
-
-    def get_estimates(self, t):
-        I_est = self.g_im(t)
-        g_in = self.basis[:t.shape[0]]
-
-        if not self.static_phase:
-            cat_grid = self.t_grid[:t.shape[0]] * t.unsqueeze(1).unsqueeze(1).unsqueeze(1)
-            cat_grid = torch.cat([cat_grid, torch.cos(cat_grid), torch.sin(cat_grid)], dim = -1)
-            g_in = torch.cat([self.basis[:t.shape[0]], cat_grid], dim = -1)
-
-        g_out = self.g_g(g_in)
-
-        sim_phs = g_out.permute(0, 3, 1, 2)
-        # Unit circle constraint
-        sim_g = torch.exp(1j * sim_phs)
-
-        return I_est, sim_g, sim_phs
-
-    def forward(self, x_batch, t):
-        I_est, sim_g, sim_phs = self.get_estimates(t)
-
-        _kernel = fftshift(fft2(sim_g * x_batch, norm="forward"), dim=[-2, -1]).abs() ** 2
-        _factor = torch.sum(_kernel, dim=[-2, -1], keepdim=True)
-        _kernel = _kernel / _factor
-        _kernel = _kernel.flip(2).flip(3)
-
-        if self.use_FFT:
-            y = []
-            for i in range(len(t)):
-                y.append(fft_2xPad_Conv2D(I_est[i:i+1], _kernel[i:i+1]).squeeze())
-            y = torch.stack(y, axis=0)
-            #y = fft_2xPad_Conv2D(I_est.permute(1, 0, 2, 3), _kernel, groups=4).squeeze()
-        else:
-            y = []
-            for i in range(len(t)):
-                y.append(F.conv2d(I_est[i:i+1], _kernel[i:i+1], padding='same').squeeze())
-            y = torch.stack(y, axis=0)
-
-        return y, _kernel, sim_g, sim_phs, I_est
-class MovingDiffuse(TemporalZernNet):
-    def __init__(self, width, PSF_size, phs_layers = 5, use_FFT=True, bsize=8, use_pe=False, static_phase=True, phs_draw=10):
-        super().__init__(width, PSF_size, phs_layers=phs_layers, use_FFT=use_FFT, bsize=bsize, static_phase=static_phase, phs_draw=phs_draw)
-        self.g_im = G_SpaceTime(width, width, bsize)
-
-        self.PSF_size = PSF_size
-
-        t_dim = 3 if not static_phase else 0
-        in_dim = self.basis.shape[-1]
-        hidden_dim = 32
-
-        act_fn = nn.LeakyReLU(inplace=True)
-        layers = []
-        layers.append(nn.Linear(t_dim + in_dim, hidden_dim))
-        for _ in range(phs_layers):
-            layers.append(nn.Linear(hidden_dim, hidden_dim))
-            layers.append(nn.LayerNorm(hidden_dim))
-            layers.append(act_fn)
-        layers.append(nn.Linear(hidden_dim, 2))
-
-        self.g_g = nn.Sequential(*layers)
-
-        table = PrettyTable(["Modules", "Parameters"])
-        total_params = 0
-        for name, parameter in self.g_g.named_parameters():
-            if not parameter.requires_grad:
-                continue
-            param = parameter.numel()
-            table.add_row([name, param])
-            total_params += param
-        print(table)
-        print(f"Total Trainable Params: {total_params}")
-
-
-        self.static_phase = static_phase
-
-    def get_estimates(self, t, return_amp=False):
-
-        I_est = self.g_im(t)
-
-        if not self.static_phase:
-            cat_grid = self.t_grid[:t.shape[0]] * t.unsqueeze(1).unsqueeze(1).unsqueeze(1)
-            cat_grid = torch.cat([cat_grid, torch.cos(cat_grid), torch.sin(cat_grid)], dim = -1)
-            g_in = torch.cat([self.basis[:t.shape[0]], cat_grid], dim = -1)
-
-        else:
-            g_in = self.basis[:t.shape[0]]
-
-        g_out = self.g_g(g_in)
-        g_out = g_out.permute(0, 3, 1, 2)
-
-        sim_phs = g_out[:, 1:2]
-        sim_amp = g_out[:, 0:1]
-        sim_g = sim_amp * torch.exp(1j * sim_phs)
-        if return_amp:
-            return I_est, sim_g, sim_phs, sim_amp
-
-        # plot estimated
-        #
-        # fig = plt.figure(figsize=(12, 12))
-        # plt.ion()
-        # for k in range(5):
-        #     ax = fig.add_subplot(3, 5, 1+k)
-        #     plt.imshow(I_est[k,0,:,:].detach().cpu().numpy())
-        #     ax = fig.add_subplot(3, 5, 6+k)
-        #     plt.imshow(sim_phs[k,0,:,:].detach().cpu().numpy())
-        #     ax = fig.add_subplot(3, 5, 11+k)
-        #     plt.imshow(sim_amp[k,0,:,:].detach().cpu().numpy())
-
-        return I_est, sim_g, sim_phs,
-
-    def forward(self, x_batch, t):
-        I_est, sim_g, sim_phs = self.get_estimates(t)
-
-        _kernel = fftshift(fft2(sim_g * x_batch, norm="forward"), dim=[-2, -1]).abs() ** 2
-        _factor = torch.sum(_kernel, dim=[-2, -1], keepdim=True)
-        _kernel = _kernel / _factor
-        _kernel = _kernel.flip(2).flip(3)
-
-        if self.use_FFT:
-            y = []
-            for i in range(len(t)):
-                y.append(fft_2xPad_Conv2D(I_est[i:i+1], _kernel[i:i+1]).squeeze())
-            y = torch.stack(y, axis=0)
-        else:
-            y = []
-            for i in range(len(t)):
-                y.append(F.conv2d(I_est[i:i+1], _kernel[i:i+1], padding='same').squeeze())
-            y = torch.stack(y, axis=0)
-
-        return y, _kernel, sim_g, sim_phs, I_est
 
 # import matplotlib.pyplot as plt
 # plt.ion()

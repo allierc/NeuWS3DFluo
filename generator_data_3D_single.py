@@ -21,7 +21,7 @@ import logging
 from utils import compute_zernike_basis, fft_2xPad_Conv2D
 class bpmPytorch(torch.nn.Module):
 
-    def __init__(self, model_config, coeff_RI=False):
+    def __init__(self, model_config, defocus=0 ):
 
         super(bpmPytorch, self).__init__()
         self.mc = model_config
@@ -84,8 +84,8 @@ class bpmPytorch(torch.nn.Module):
 
         self.Hz1 = self.FresnelPropag(dz=self.dz, fdir=[0,0])
         self.Hz2 = self.FresnelPropag(dz=-self.dz, fdir=[0,0])
-        self.Hz3 = self.FresnelPropag(dz=self.dz*50, fdir=[0,0])
-        self.Hz4 = self.FresnelPropag(dz=-self.dz*50, fdir=[0,0])
+        self.Hz3 = self.FresnelPropag(dz=self.dz*defocus, fdir=[0,0])
+        self.Hz4 = self.FresnelPropag(dz=-self.dz*defocus, fdir=[0,0])
 
         fdir= [0,0]
         mux_inc = (self.mux - fdir[0])
@@ -102,7 +102,7 @@ class bpmPytorch(torch.nn.Module):
         C = torch.nan_to_num(C, nan=0.0, posinf=0.0, neginf=0.0)
         self.C = C
 
-    def forward(self, phi=None, plane=None, verbose=False):
+    def forward(self, phi=None, plane=None, it=0):
 
         k0 = 2 * np.pi / self.lbda
 
@@ -111,6 +111,8 @@ class bpmPytorch(torch.nn.Module):
             torch.zeros(self.field_shape, dtype=torch.float32, device=self.device, requires_grad=False))
 
         coef=torch.tensor(self.dz*k0*1.j, dtype=torch.cfloat, requires_grad=False, device=self.device)
+        coef0 = torch.tensor(self.dz * k0, dtype=torch.cfloat, requires_grad=False, device=self.device)
+
 
         self.dn0_layers = self.dn0.unbind(dim=2)
         self.fluo_layers = self.fluo.unbind(dim=2)
@@ -118,23 +120,14 @@ class bpmPytorch(torch.nn.Module):
 
         phi_layers=phi.unbind(dim=2)
 
-        for i in range(plane,self.Nz):
-            depha0 = torch.mul(self.dn0_layers[i], coef)
-            depha = torch.mul(self.field, torch.exp(depha0))
-            if (i==plane):
-                S = torch.mul(self.fluo_layers[i],torch.exp(phi_layers[i]*1.j))
-                S = torch.fft.ifftn(torch.mul(torch.fft.fftn(S),self.C))
-                self.field = torch.fft.ifftn(torch.mul(torch.fft.fftn(depha+S),self.Hz1))
-            else:
-                self.field = torch.fft.ifftn(torch.mul(torch.fft.fftn(depha), self.Hz1))
+        ph = torch.exp(torch.mul(self.dn0_layers[it], coef))
 
-        self.field = torch.fft.fftn(self.field)
+        S = torch.mul(self.fluo_layers[plane],torch.exp(phi_layers[0]*1.j))
+        S = torch.fft.ifftn(torch.mul(torch.fft.fftn(S),self.C))
+        self.field = torch.mul(S, ph)
 
+        self.field = torch.mul(torch.fft.fftn(self.field), self.Hz1)
         self.field = torch.mul(self.field, self.Hz3)
-
-
-
-
 
         # plt.ion()
         # plt.imshow(torch.abs(bpm.pupil).detach().cpu().numpy())
@@ -151,11 +144,7 @@ class bpmPytorch(torch.nn.Module):
         for i in range(plane,self.Nz):
             self.field = torch.mul(self.field,self.Hz2)
 
-        self.field = torch.mul(self.field, self.Hz4)
-
         I = torch.abs(torch.fft.ifftn(self.field )) ** 2
-        plt.ion()
-        plt.imshow(I.detach().cpu().numpy())
 
         return  I
 
@@ -187,66 +176,73 @@ if __name__ == '__main__':
     coeff_RI = 0
     Niter = 100
 
-    torch.cuda.empty_cache()
-    bpm = bpmPytorch(model_config, coeff_RI=coeff_RI)
+    phiL = torch.rand([256, 256, 1000], dtype=torch.float32, requires_grad=False, device='cuda:0') * 2 * np.pi
 
-    new_obj = np.zeros((bpm.Nz, bpm.Nx, bpm.Ny))
-    tmp=imread(f'./Pics_input/target.tif')
-    new_obj=tmp
-    # new_obj[:, int(bpm.Nx / 4):int(bpm.Nx * 3 / 4), int(bpm.Ny / 4):int(bpm.Ny * 3 / 4)] = tmp
-    new_obj = np.moveaxis(new_obj, 0, -1)
-    bpm.fluo = torch.tensor(new_obj, device=bpm.device, dtype=bpm.dtype, requires_grad=False)
+    defocus_list = [50]
 
-    new_obj = np.zeros((bpm.Nz, bpm.Nx, bpm.Ny))
-    tmp=imread(f'./Pics_input/dn.tif')
-    new_obj=tmp
-    # new_obj[:, int(bpm.Nx / 4):int(bpm.Nx * 3 / 4), int(bpm.Ny / 4):int(bpm.Ny * 3 / 4)] = tmp
-    new_obj = np.moveaxis(new_obj, 0, -1)
-    bpm.dn0 = torch.tensor(new_obj, device=bpm.device, dtype=bpm.dtype, requires_grad=False)
+    for defocus in defocus_list:
 
-    bAber = False
+        print (defocus)
 
+        torch.cuda.empty_cache()
+        bpm = bpmPytorch(model_config, defocus=defocus)
+
+        new_obj = np.zeros((bpm.Nz, bpm.Nx, bpm.Ny))
+        tmp=imread(f'./Pics_input/target.tif')
+        new_obj=tmp
+        # new_obj[:, int(bpm.Nx / 4):int(bpm.Nx * 3 / 4), int(bpm.Ny / 4):int(bpm.Ny * 3 / 4)] = tmp
+        new_obj = np.moveaxis(new_obj, 0, -1)
+        bpm.fluo = torch.tensor(new_obj, device=bpm.device, dtype=bpm.dtype, requires_grad=False)
+
+        new_obj = np.zeros((bpm.Nz, bpm.Nx, bpm.Ny))
+        tmp=imread(f'./Pics_input/dn_reversed.tif')
+        new_obj=tmp
+        # new_obj[:, int(bpm.Nx / 4):int(bpm.Nx * 3 / 4), int(bpm.Ny / 4):int(bpm.Ny * 3 / 4)] = tmp
+        new_obj = np.moveaxis(new_obj, 0, -1)
+        bpm.dn0 = torch.tensor(new_obj, device=bpm.device, dtype=bpm.dtype, requires_grad=False)
+
+        bAber = False
+
+        Istack = np.zeros([bpm.Nx, bpm.Ny, bpm.Nz])
+
+        plane = bpm.Nz-1
+
+        for pplane in tqdm(range(0,bpm.Nz)):
+            I = torch.tensor(np.zeros((bpm.Nx, bpm.Ny)), device=bpm.device, dtype=bpm.dtype, requires_grad=False)
+            for w in range(0, Niter):
+                zoi = w
+                with torch.no_grad():
+                    I = I + bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz ], it=pplane)
+            Istack[:, :, pplane] = I.detach().cpu().numpy() / Niter
+
+            # imwrite(f'./tmp/fig_{pplane}.tif',np.moveaxis(np.array(I.cpu()), -1, 0) / Niter * 5 )
+
+        tmp = np.moveaxis(Istack, -1, 0)
+        imwrite(f'./Pics_input/input_aberration_defocus_{defocus}.tif', tmp )
+
+    # t=torch.load('./Pics_input/aberration.pt')
+    # t=t.to('cuda:0')
+    # bpm.aber=t
+    #
+    # bAber=True
+    #
     # Istack = np.zeros([bpm.Nx, bpm.Ny, bpm.Nz])
     #
-    # for plane in tqdm(range(0, bpm.Nz)):
+    # plane = bpm.Nz-1
+    #
+    #
+    # for pplane in range(0,bpm.Nz):
     #     I = torch.tensor(np.zeros((bpm.Nx, bpm.Ny)), device=bpm.device, dtype=bpm.dtype, requires_grad=False)
     #     phiL = torch.rand([bpm.Nx, bpm.Ny, 1000], dtype=torch.float32, requires_grad=False,device='cuda:0') * 2 * np.pi
     #     for w in range(0, Niter):
     #         zoi = np.random.randint(1000 - bpm.Nz)
     #         with torch.no_grad():
-    #             I = I + bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz ])
-    #     Istack[:, :, plane] = I.detach().cpu().numpy() / Niter
+    #             I = I + bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz ], it=pplane)
     #
-    #     # imwrite(f'./Recons3D/fluo_LSM_RIx{np.round(coeff_RI)/100}_{plane}.tif',
-    #     #         np.moveaxis(np.array(I.cpu()), -1, 0) / Niter * 5 )
+    #     # plt.ion()
+    #     # plt.imshow(I.detach().cpu().numpy())
     #
-    # tmp = np.moveaxis(Istack, -1, 0)
-    # tmp = tmp[:, 128:128 + 256, 128:128 + 256]
-    # imwrite(f'./Pics_input/input_aberration_null.tif', tmp )
-
-    t=torch.load('./Pics_input/aberration.pt')
-    t=t.to('cuda:0')
-    bpm.aber=t
-
-    bAber=True
-
-    Istack = np.zeros([bpm.Nx, bpm.Ny, bpm.Nz])
-
-    plane = bpm.Nz-1
-
-
-    for pplane in range(0,bpm.Nz):
-        I = torch.tensor(np.zeros((bpm.Nx, bpm.Ny)), device=bpm.device, dtype=bpm.dtype, requires_grad=False)
-        phiL = torch.rand([bpm.Nx, bpm.Ny, 1000], dtype=torch.float32, requires_grad=False,device='cuda:0') * 2 * np.pi
-        for w in range(0, Niter):
-            zoi = np.random.randint(1000 - bpm.Nz)
-            with torch.no_grad():
-                I = I + bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz ])
-
-        plt.ion()
-        plt.imshow(I.detach().cpu().numpy())
-
-
+    #
     # tmp = np.moveaxis(Istack, -1, 0)
     # imwrite(f'./Pics_input/input_aberration.tif', tmp )
 

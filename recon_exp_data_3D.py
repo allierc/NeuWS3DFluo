@@ -34,7 +34,7 @@ if __name__ == "__main__":
 
     bDynamic = False
 
-    flist = ['Recons3D','Recons3D_torch']
+    flist = ['Recons3D']
     for folder in flist:
         files = glob.glob(f"/home/allierc@hhmi.org/Desktop/Py/NeuWS3D/{folder}/*")
         for f in files:
@@ -64,6 +64,7 @@ if __name__ == "__main__":
     parser.add_argument('--im_prefix', default='SLM_raw', type=str)
     parser.add_argument('--zero_freq', default=-1, type=int)
     parser.add_argument('--phs_layers', default=4, type=int)
+    parser.add_argument('--phs_draw', default=25, type=int)
     parser.add_argument('--dynamic_scene', action='store_true')
 
     args = parser.parse_args()
@@ -111,10 +112,7 @@ if __name__ == "__main__":
         args.dynamic_scene = False
         args.static_phase = True
 
-    if args.dynamic_scene:
-        net = MovingDiffuse(width=args.width, PSF_size=PSF_size, use_FFT=True, bsize=args.batch_size, phs_layers=args.phs_layers, static_phase=args.static_phase)
-    else:
-        net = StaticDiffuseNet(width=args.width, PSF_size=PSF_size, use_pe=False, use_FFT=True, bsize=args.batch_size, phs_layers=args.phs_layers, static_phase=args.static_phase)
+    net = StaticDiffuseNet(width=args.width, PSF_size=PSF_size, use_pe=False, use_FFT=True, bsize=args.batch_size, phs_layers=args.phs_layers, static_phase=args.static_phase, phs_draw=args.phs_draw)
 
     net = net.to(DEVICE)
     net.train()
@@ -145,15 +143,26 @@ if __name__ == "__main__":
     time.sleep(0.5)
 
     target = imread(f'./Pics_input/target.tif')
-    dn = imread(f'./Pics_input/dn.tif')
+    dn = imread(f'./Pics_input/dn_reversed.tif')
     loss = 0
 
     for plane in range(255, -1, -1):
         total_it = 0
 
-        for epoch in range(10):
-            if (plane==255) & (epoch>0):
+        im_opt = torch.optim.Adam(net.g_im.parameters(), lr=1E-3)
+        ph_opt = torch.optim.Adam(net.dn_im.parameters(), lr=1E-3)
+
+        for epoch in range(100):
+
+            if epoch==50:
+                im_opt = torch.optim.Adam(net.g_im.parameters(), lr=1E-6)
+            if epoch==75:
+                im_opt = torch.optim.Adam(net.g_im.parameters(), lr=1E-3)
+                ph_opt = torch.optim.Adam(net.dn_im.parameters(), lr=1E-6)
+
+            if (epoch>0):
                 print(f'    {epoch}     loss:{np.round(loss.item(), 6)}  ')
+
             for it in range(100):
 
                 total_it += 1
@@ -166,21 +175,16 @@ if __name__ == "__main__":
 
                 im_opt.zero_grad();  ph_opt.zero_grad()
 
-                y, S_est, dn_est = net(torch.squeeze(x_batch), cur_t)
+                y, F_estimated, Phi_estimated = net(torch.squeeze(x_batch), cur_t)
 
-                loss = F.mse_loss(y, y_batch) + torch.abs(torch.std(dn_est)-1E-1) + torch.abs(torch.mean(dn_est)-0.05) + 0*TV(dn_est)*1E-2 + TV(S_est)*1E-4
+                loss = 2 * F.mse_loss(y, y_batch) + 2E-4 * TV(F_estimated) #- torch.log(Phi_estimated.norm(1))
+                # loss = F.mse_loss(y, y_batch) + torch.abs(torch.std(Phi_estimated)-1E-1) + torch.abs(torch.mean(Phi_estimated)-0.05) + 0*TV(Phi_estimated)*1E-2 + TV(F_estimated)*1E-4
 
                 loss.backward()
 
                 im_opt.step()
                 ph_opt.step()
 
-
-
-        torch.save(S_est, f'./Recons3D_torch/S_est_plane_{plane}_it_{total_it}.pt')
-        torch.save(dn_est, f'./Recons3D_torch/dn_est_plane_{plane}_it_{total_it}.pt')
-
-        print(f'   plane: {plane} it: {total_it} loss:{np.round(loss.item(), 6)}')
 
         fig = plt.figure(figsize=(24, 6))
         # plt.ion()
@@ -193,17 +197,17 @@ if __name__ == "__main__":
         plt.axis('off')
         plt.title('Reconstructed measurement')
         ax = fig.add_subplot(1, 6, 3)
-        plt.imshow((S_est ** 2).detach().cpu().squeeze(), vmin=0, vmax=2, cmap='gray')
+        plt.imshow((F_estimated ** 2).detach().cpu().squeeze(),vmin=0, vmax=1, cmap='gray')
         plt.axis('off')
         plt.title('fluo_est')
         ax = fig.add_subplot(1, 6, 4)
-        plt.imshow(dn_est.detach().cpu().squeeze(), vmin=-0.25, vmax=0.25, cmap='rainbow')
+        plt.imshow(Phi_estimated.detach().cpu().squeeze(), cmap='rainbow')
         plt.axis('off')
-        plt.title(f'dn_est')
-        mmin = torch.min(dn_est).item()
-        mmax = torch.max(dn_est).item()
-        mstd = torch.std(dn_est).item()
-        mmean = torch.mean(dn_est).item()
+        plt.title(f'Phi_estimated')
+        mmin = torch.min(Phi_estimated).item()
+        mmax = torch.max(Phi_estimated).item()
+        mstd = torch.std(Phi_estimated).item()
+        mmean = torch.mean(Phi_estimated).item()
         # plt.text(10,15,f'min: {np.round(mmin,2)}   max: {np.round(mmax,2)}   {np.round(mmean,3)}+/-{np.round(mstd,3)}')
         ax = fig.add_subplot(1, 6, 5)
         plt.imshow(target[plane, :, :], vmin=0, vmax=0.5, cmap='gray')
@@ -218,7 +222,10 @@ if __name__ == "__main__":
         plt.clf()
 
 
+        torch.save(F_estimated, f'./Recons3D_torch/F_estimated_plane_{plane}_it_{total_it}.pt')
+        torch.save(Phi_estimated, f'./Recons3D_torch/Phi_estimated_plane_{plane}_it_{total_it}.pt')
 
+        print(f'   plane: {plane} it: {total_it} loss:{np.round(loss.item(), 6)}')
 
 
     # t1 = time.time()

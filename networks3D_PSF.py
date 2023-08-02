@@ -245,7 +245,7 @@ class G_SpaceTime(nn.Module):
 
         return output
 class TemporalZernNet(nn.Module):
-    def __init__(self, width, PSF_size, phs_layers = 2, use_FFT=True, bsize=8, use_pe=False, static_phase=True):
+    def __init__(self, width, PSF_size, phs_layers = 2, use_FFT=True, bsize=8, use_pe=False, static_phase=True, phs_draw=10):
         super().__init__()
         self.g_im = G_PatchTensor(width)
         self.dn_im = G_PatchTensor(width)
@@ -289,9 +289,10 @@ class TemporalZernNet(nn.Module):
                         'padding': False,
                         'dtype': torch.float32,
                         'device': 'cuda',
+                        'phs_draw': phs_draw,
                         'load_data': False}
 
-        self.Niter = 20
+        self.Niter = phs_draw
         # self.bpm = bpm3Dfluo(bpm_config=self.bpm_config)
         self.bpm = bpm3Dfluo_PSF(bpm_config=self.bpm_config)
 
@@ -303,23 +304,23 @@ class TemporalZernNet(nn.Module):
         # sim_g torch.Size([1, 1, 256, 256]) requires_grad True
         # _kernel.shape torch.Size([1, 1, 256, 256]) requires_grad True
 
-        S_est, dn_est = self.get_estimates(t)
+        F_estimated, Phi_estimated = self.get_estimates(t)
 
         for w in range(0, self.Niter):
             zoi = np.random.randint(self.Niter*50)
             if w==0:
-                I=self.bpm(plane=int(t), phi=self.phiL[:, :, zoi], gamma=x_batch, fluo_unknown=S_est, dn_unknown=dn_est)
+                I=self.bpm(plane=int(t), phi=self.phiL[:, :, zoi], gamma=x_batch, fluo_unknown=F_estimated, dn_unknown=Phi_estimated)
             else:
-                I += self.bpm(plane=int(t), phi=self.phiL[:, :, zoi], gamma=x_batch, fluo_unknown=S_est, dn_unknown=dn_est)
+                I += self.bpm(plane=int(t), phi=self.phiL[:, :, zoi], gamma=x_batch, fluo_unknown=F_estimated, dn_unknown=Phi_estimated)
 
         I = I/self.Niter
 
-        # self.bpm.dn0.data[int(t)] = torch.squeeze(dn_est.clone())
+        # self.bpm.dn0.data[int(t)] = torch.squeeze(Phi_estimated.clone())
 
-        return I, S_est, dn_est
+        return I, F_estimated, Phi_estimated
 class StaticDiffuseNet(TemporalZernNet):
-    def __init__(self, width, PSF_size, phs_layers = 2, use_FFT=True, bsize=8, use_pe=False, static_phase=True):
-        super().__init__(width, PSF_size, phs_layers = phs_layers, use_FFT=use_FFT, bsize=bsize, use_pe=use_pe)
+    def __init__(self, width, PSF_size, phs_layers = 2, use_FFT=True, bsize=8, use_pe=False, static_phase=True, phs_draw=10):
+        super().__init__(width, PSF_size, phs_layers = phs_layers, use_FFT=use_FFT, bsize=bsize, use_pe=use_pe, phs_draw=phs_draw)
 
         hidden_dim = 32
         t_dim = 1 if not static_phase else 0
@@ -341,13 +342,13 @@ class StaticDiffuseNet(TemporalZernNet):
 
         I_est = self.g_im()     #torch.Size([1, 1, 256, 256])  requires_grad=True
 
-        # dn_est = self.dn_im()
+        # Phi_estimated = self.dn_im()
 
         g_in = self.basis[0:1]      # torch.Size([1, 256, 256, 28]) requires_grad=False
-        dn_est = self.g_g(g_in)
-        dn_est = dn_est.permute(0, 3, 1, 2)       # torch.Size([1, 256, 256, 1]) requires_grad=True
+        Phi_estimated = self.g_g(g_in)
+        Phi_estimated = Phi_estimated.permute(0, 3, 1, 2)       # torch.Size([1, 256, 256, 1]) requires_grad=True
 
-        return torch.squeeze(torch.abs(I_est)), torch.squeeze(dn_est)
+        return torch.squeeze(torch.abs(I_est)), torch.squeeze(Phi_estimated)
 
 class MovingTemporalZernNet(TemporalZernNet):
     def __init__(self, width, PSF_size, phs_layers = 5, use_FFT=True, bsize=8, use_pe=False, static_phase=True):
@@ -413,8 +414,8 @@ class MovingTemporalZernNet(TemporalZernNet):
 
         return y, _kernel, sim_g, sim_phs, I_est
 class MovingDiffuse(TemporalZernNet):
-    def __init__(self, width, PSF_size, phs_layers = 5, use_FFT=True, bsize=8, use_pe=False, static_phase=True):
-        super().__init__(width, PSF_size, phs_layers=phs_layers, use_FFT=use_FFT, bsize=bsize, static_phase=static_phase)
+    def __init__(self, width, PSF_size, phs_layers = 5, use_FFT=True, bsize=8, use_pe=False, static_phase=True, phs_draw=10):
+        super().__init__(width, PSF_size, phs_layers=phs_layers, use_FFT=use_FFT, bsize=bsize, static_phase=static_phase, phs_draw=phs_draw)
         self.g_im = G_SpaceTime(width, width, bsize)
 
         self.PSF_size = PSF_size
@@ -506,7 +507,7 @@ class MovingDiffuse(TemporalZernNet):
 
 # import matplotlib.pyplot as plt
 # plt.ion()
-# im = S_est
+# im = F_estimated
 # im = im.reshape([-1, 1, 256, 256])
 # im = im.detach().cpu().numpy()
 # plt.imshow(np.squeeze(im))
