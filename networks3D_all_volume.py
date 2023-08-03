@@ -27,7 +27,7 @@ class G_Renderer(nn.Module):
     def __init__(self, in_dim=32, hidden_dim=32, num_layers=2, out_dim=1):
         super().__init__()
 
-        in_dim = in_dim + 10 #z_embedding
+        in_dim = in_dim + 11 #z_embedding
 
         act_fn = nn.ReLU()
         layers = []
@@ -97,19 +97,20 @@ class G_Tensor(G_FeatureTensor):
         super().__init__(x_dim, y_dim)
         self.renderer = G_Renderer()
 
-    def forward(self, z_embedding=[]):
+    def forward(self):
 
         feats = self.sample()
         # torch.Size([16384, 32]) 128*128*32 requires_grad True
-        return self.renderer(torch.cat((feats,z_embedding),dim=1)).reshape([-1, 1, self.x_dim, self.y_dim])
+
+        return self.renderer(feats).reshape([-1, 1, self.x_dim, self.y_dim])
 
 class G_PatchTensor(nn.Module):
     def __init__(self, width):
         super().__init__()
         self.net1 = G_Tensor(width, width)
 
-    def forward(self, z_embedding=[]):
-        p1 = self.net1(z_embedding=z_embedding)        # torch.Size([1, 1, 128, 128]) requires_grad=True
+    def forward(self):
+        p1 = self.net1()        # torch.Size([1, 1, 128, 128]) requires_grad=True
 
         return p1
 
@@ -154,6 +155,7 @@ class G_SpaceTime(nn.Module):
         hidden_dim, num_hidden_layers = 32, 3
 
         self.spatial_net = G_FeatureTensor(x_width, y_width, hidden_dim, ds_factor=1)
+
         self.x_width, self.y_width = x_width, y_width
 
         self.t0 = nn.Parameter(torch.randn(1), requires_grad=True)
@@ -186,24 +188,24 @@ class G_SpaceTime(nn.Module):
 
 
     def forward(self, t):
-        spatial_feats = self.spatial_net().unsqueeze(0).repeat(t.shape[0], 1, 1)
+        spatial_feats = self.spatial_net().unsqueeze(0).repeat(1, 1, 1)
+
+
         spatial_feats = spatial_feats.reshape(-1, self.x_width, self.y_width, spatial_feats.shape[-1])
         spatial_feats = spatial_feats.permute(0, 3, 1, 2)
 
-        alpha = (t + 0.5).unsqueeze(-1)
+        alpha = t
         t_emb = alpha * torch.ones_like(self.t1)
         #t_emb = (t).unsqueeze(-1) * torch.ones_like(self.t1)
         t_emb = t_emb.unsqueeze(-2).unsqueeze(-2).repeat(1, self.x_width, self.y_width, 1)
-        #t_emb = self.embedding_t(t_emb)
+        t_emb = self.embedding_t(t_emb)
+        t_emb = t_emb.permute(0, 3, 1, 2)
 
-        t_input = torch.cat([self.xy_basis[:t.shape[0]], t_emb], axis=-1)
+        t_input = torch.cat([spatial_feats, t_emb], dim=1)
 
-        motion = self.warp_net(t_input) * 0.1
+        output = self.renderer(t_input.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
 
-        feats = F.grid_sample(spatial_feats, motion + self.xy_basis[:t.shape[0]])
-        output = self.renderer(feats.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-
-        output = F.leaky_relu(output, 0.001)
+        # output = F.leaky_relu(output, 0.001)
 
         return output
 
@@ -211,8 +213,11 @@ class TemporalZernNet(nn.Module):
     def __init__(self, width, PSF_size, phs_layers = 2, use_FFT=True, bsize=8, use_pe=False, static_phase=True, phs_draw=10):
         super().__init__()
 
-        self.g_im = G_PatchTensor(width)
-        self.dn_im = G_PatchTensor(width)
+        # self.g_im = G_PatchTensor(width)
+        # self.dn_im = G_PatchTensor(width)
+
+        self.g_im = G_SpaceTime(width, width, bsize)
+        self.dn_im = G_SpaceTime(width, width, bsize)
 
         if not use_pe:
             print ('use Zernike')
@@ -290,36 +295,19 @@ class StaticDiffuseNet(TemporalZernNet):
         in_dim = self.basis.shape[-1]
         act_fn = nn.LeakyReLU(inplace=True)
 
-        layers = []
-        layers.append(nn.Linear(t_dim + in_dim, hidden_dim))
-        for _ in range(phs_layers):
-            layers.append(nn.Linear(hidden_dim, hidden_dim))
-            # layers.append(nn.LayerNorm(hidden_dim))
-            layers.append(act_fn)
-        layers.append(nn.Linear(hidden_dim, 1))
-
-        self.g_g = nn.Sequential(*layers)
         self.static_phase = static_phase
 
-        self.z_embedding = torch.load(f'./Pics_input/z_embedding_L_10.pt')
-        self.z_embedding = self.z_embedding.reshape(65536, 256, 10)
+        # self.z_embedding = torch.load(f'./Pics_input/z_embedding_L_10.pt')
+        # self.z_embedding = self.z_embedding.reshape(65536, 256, 10)
 
     def get_estimates(self, t):
 
-
-        z_embedding=torch.squeeze(self.z_embedding[:,t,:])
-
-        I_est = self.g_im(z_embedding=z_embedding)     #torch.Size([1, 1, 256, 256])  requires_grad=True
+        I_est = self.g_im(t)     #torch.Size([1, 1, 256, 256])  requires_grad=True
 
         Phi_estimated = torch.zeros(256,256,256,device='cuda:0')
 
-        for dn_plane in range (t,256):
-                z_embedding = torch.squeeze(self.z_embedding[:, dn_plane, :])
-                Phi_estimated[dn_plane,:,:] = torch.squeeze(self.dn_im(z_embedding=z_embedding))
-
-        # g_in = self.basis[0:1]      # torch.Size([1, 256, 256, 28]) requires_grad=False
-        # Phi_estimated = self.g_g(g_in)
-        # Phi_estimated = Phi_estimated.permute(0, 3, 1, 2)       # torch.Size([1, 256, 256, 1]) requires_grad=True
+        for dn_plane in range (int(t*256),256):
+                Phi_estimated[dn_plane,:,:] = torch.squeeze(self.dn_im(dn_plane/256))
 
         return torch.squeeze(torch.abs(I_est)), torch.squeeze(Phi_estimated)
 

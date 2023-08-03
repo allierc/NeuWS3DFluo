@@ -187,7 +187,7 @@ if __name__ == "__main__":
 
 
         fig = plt.figure(figsize=(24, 6))
-        # plt.ion()
+        plt.ion()
         ax = fig.add_subplot(1, 6, 1)
         plt.imshow(y_batch.detach().cpu().squeeze(), vmin=0, vmax=0.5, cmap='gray')
         plt.axis('off')
@@ -197,7 +197,7 @@ if __name__ == "__main__":
         plt.axis('off')
         plt.title('Reconstructed measurement')
         ax = fig.add_subplot(1, 6, 3)
-        plt.imshow((F_estimated ** 2).detach().cpu().squeeze(),vmin=0, vmax=1, cmap='gray')
+        plt.imshow((F_estimated ** 2).detach().cpu().squeeze(), cmap='gray')
         plt.axis('off')
         plt.title('fluo_est')
         ax = fig.add_subplot(1, 6, 4)
