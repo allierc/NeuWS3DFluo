@@ -95,13 +95,6 @@ if __name__ == "__main__":
 
     dset = BatchDataset(data_dir, num=args.num_t, im_prefix=args.im_prefix, max_intensity=args.max_intensity,zero_freq=args.zero_freq)
 
-    print('Loading x_batches y_batches ...')
-    x_batches = torch.load(f'./Pics_input/x_batches.pt')
-    y_batches = torch.load(f'./Pics_input/y_batches.pt')
-    print('done')
-
-    print('x_batches', x_batches.shape)
-    print('y_batches', y_batches.shape)
     print('static_phase', args.static_phase)
     print('dynamic_scene',args.dynamic_scene)
 
@@ -147,43 +140,89 @@ if __name__ == "__main__":
     loss = 0
 
 
-    im_opt = torch.optim.Adam(net.g_im.parameters(), lr=1E-5)
-    ph_opt = torch.optim.Adam(net.dn_im.parameters(), lr=1E-5)
+    im_opt = torch.optim.Adam(net.g_im.parameters(), lr=1E-3)
+    ph_opt = torch.optim.Adam(net.dn_im.parameters(), lr=1E-3)
 
 
-    print ('Initialisation of the neural representation')
+    print ('Initialisation of the neural representation for fluorescence only')
+
+    print('Loading x_batches y_batches ...')
+    x_batches = torch.load(f'./Pics_input/x_single_batches.pt')
+    y_batches = torch.load(f'./Pics_input/y_single_batches.pt')
+    print('done')
+
+    print('x_batches', x_batches.shape)
+    print('y_batches', y_batches.shape)
 
     plane = 255
-    for epoch in range(100):
+    total_it = 0
 
-        total_it = 0
-        it_list = np.arange(100)
+    for epoch in range(100000):
 
-        for it in it_list:
+        plane=np.random.randint(256)
 
-            total_it += 1
+        plane = 255
 
-            x_batch, y_batch = x_batches[it, plane, :, :], y_batches[it, plane, :, :]
+        # print(f'plane: {plane}')
 
-            y_batch = torch.squeeze(y_batch) * 10
+        total_it += 1
 
-            cur_t = plane/256
+        x_batch, y_batch = x_batches[0:1, plane, :, :], y_batches[0:1, plane, :, :]
 
-            im_opt.zero_grad();
-            ph_opt.zero_grad()
+        y_batch = torch.squeeze(y_batch) * 10
 
-            y, F_estimated, Phi_estimated = net(torch.squeeze(x_batch), cur_t)
+        cur_t = plane/256
 
-            loss = 2 * F.mse_loss(y, y_batch) # + 2E-4 * TV(F_estimated)  # - torch.log(Phi_estimated.norm(1))
+        im_opt.zero_grad();
+        ph_opt.zero_grad()
 
+        y, F_estimated, Phi_estimated = net(torch.squeeze(x_batch), cur_t)
 
+        loss = 2 * F.mse_loss(y, y_batch) # + 1E-4 * TV(F_estimated)  # - torch.log(Phi_estimated.norm(1))
 
-            loss.backward()
+        loss.backward()
 
-            im_opt.step()
-            ph_opt.step()
+        im_opt.step()
+        # ph_opt.step()
 
         print(f'     epoch: {epoch}/100  loss: {np.round(loss.item(),5)}')
+
+        if total_it%20==0:
+
+            fig = plt.figure(figsize=(24, 6))
+            # plt.ion()
+            ax = fig.add_subplot(1, 6, 1)
+            plt.imshow(y_batch.detach().cpu().squeeze(), vmin=0, vmax=0.5, cmap='gray')
+            plt.axis('off')
+            plt.title('Simulated measurement')
+            ax = fig.add_subplot(1, 6, 2)
+            plt.imshow(y.detach().cpu().squeeze(), cmap='gray')
+            plt.axis('off')
+            plt.title('Reconstructed measurement')
+            ax = fig.add_subplot(1, 6, 3)
+            plt.imshow((F_estimated ** 2).detach().cpu().squeeze(), vmin=0, vmax=0.5, cmap='gray')
+            plt.axis('off')
+            plt.title('fluo_est')
+            ax = fig.add_subplot(1, 6, 4)
+            plt.imshow(Phi_estimated[255].detach().cpu().squeeze(), cmap='rainbow')
+            plt.axis('off')
+            plt.title(f'Phi_estimated')
+            mmin = torch.min(Phi_estimated).item()
+            mmax = torch.max(Phi_estimated).item()
+            mstd = torch.std(Phi_estimated).item()
+            mmean = torch.mean(Phi_estimated).item()
+            # plt.text(10,15,f'min: {np.round(mmin,2)}   max: {np.round(mmax,2)}   {np.round(mmean,3)}+/-{np.round(mstd,3)}')
+            ax = fig.add_subplot(1, 6, 5)
+            plt.imshow(target[plane, :, :], vmin=0, vmax=0.5, cmap='gray')
+            plt.title(f'fluo target')
+            plt.axis('off')
+            ax = fig.add_subplot(1, 6, 6)
+            plt.imshow(dn[plane, :, :], vmin=0, vmax=0.1, cmap='gray')
+            plt.title(f'dn target')
+            plt.axis('off')
+            plt.tight_layout()
+            plt.savefig(f'./Recons3D/plane_{plane}_it_{total_it}.jpg')
+            plt.clf()
 
     epoch=-1
 
@@ -206,6 +245,14 @@ if __name__ == "__main__":
 
     Phi_all = []
     Fluo_all = []
+
+    print('Loading x_batches y_batches ...')
+    x_batches = torch.load(f'./Pics_input/x_batches.pt')
+    y_batches = torch.load(f'./Pics_input/y_batches.pt')
+    print('done')
+
+    print('x_batches', x_batches.shape)
+    print('y_batches', y_batches.shape)
 
 
 
