@@ -96,7 +96,7 @@ if __name__ == "__main__":
     dset = BatchDataset(data_dir, num=args.num_t, im_prefix=args.im_prefix, max_intensity=args.max_intensity,zero_freq=args.zero_freq)
 
     print('Loading x_batches y_batches ...')
-    x_batches = torch.load(f'./DATA/x_batches.pt')          # simulated data generated with generator_data_3D
+    x_batches = torch.load(f'./DATA/x_batches.pt')          # simulated data generated with generator_data_3D   aberrations   100x256x256x256
     y_batches = torch.load(f'./DATA/y_batches.pt')
     print('done')
 
