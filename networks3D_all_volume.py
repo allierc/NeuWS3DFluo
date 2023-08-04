@@ -296,8 +296,6 @@ class StaticDiffuseNet(TemporalZernNet):
 
         self.static_phase = static_phase
 
-        # self.z_embedding = torch.load(f'./Pics_input/z_embedding_L_10.pt')
-        # self.z_embedding = self.z_embedding.reshape(65536, 256, 10)
 
     def get_estimates(self, t):
 
@@ -305,8 +303,8 @@ class StaticDiffuseNet(TemporalZernNet):
 
         Phi_estimated = torch.zeros(256,256,256,device='cuda:0')
 
-        # for dn_plane in range (int(t*256),256):
-        #         Phi_estimated[dn_plane,:,:] = torch.squeeze(self.dn_im(dn_plane/256))
+        for dn_plane in range (int(t*256),256):
+                Phi_estimated[dn_plane,:,:] = torch.squeeze(self.dn_im(dn_plane/256))
 
         return torch.squeeze(I_est), torch.squeeze(Phi_estimated)
 
