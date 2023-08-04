@@ -55,7 +55,7 @@ if __name__ == '__main__':
                     'out_path': "./Recons3D/"}
 
     bDefocus = False
-    bSingle = True
+    bSingle = False
 
 
     copyfile(os.path.realpath(__file__), os.path.join(f'./Pics_input/', 'generating_code.py'))
