@@ -166,11 +166,6 @@ if __name__ == "__main__":
                                                                             # sim_phs phase of estimated aberration ( Phi in eq.)
             mse_loss = F.mse_loss(y, y_batch)
 
-            # if epoch>100:
-            #     loss = mse_loss + TV(I_est)/1E9
-            # else:
-            #     loss = mse_loss
-
             loss = mse_loss
 
             loss.backward()
