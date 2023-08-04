@@ -215,7 +215,7 @@ class TemporalZernNet(nn.Module):
         # self.g_im = G_PatchTensor(width)
         # self.dn_im = G_PatchTensor(width)
 
-        self.g_im = G_SpaceTime(width, width, bsize)
+        self.g_im = G_SpaceTime(width, width, bsize)        # time is Z
         self.dn_im = G_SpaceTime(width, width, bsize)
 
         if not use_pe:
@@ -260,17 +260,11 @@ class TemporalZernNet(nn.Module):
                         'phs_draw': phs_draw,
                         'load_data': False}
 
-        self.Niter = phs_draw
-        self.bpm = bpm3Dfluo_all_volume(bpm_config=self.bpm_config)
-        # self.bpm = bpm3Dfluo_PSF(bpm_config=self.bpm_config)
-
-        self.phiL = torch.rand([self.bpm.Nx, self.bpm.Ny, self.Niter*50], dtype=torch.float32, requires_grad=False, device='cuda:0') * 2 * np.pi
+        self.Niter = phs_draw                                           # Numer of random draw for the phase of the fluorescence emitters
+        self.bpm = bpm3Dfluo_all_volume(bpm_config=self.bpm_config)     # forward model of light propagation
+        self.phiL = torch.rand([self.bpm.Nx, self.bpm.Ny, self.Niter*50], dtype=torch.float32, requires_grad=False, device='cuda:0') * 2 * np.pi        # random draw of phase images
 
     def forward(self, x_batch, t):
-
-        # x_batch torch.Size([1, 1, 256, 256]) requires_grad True
-        # sim_g torch.Size([1, 1, 256, 256]) requires_grad True
-        # _kernel.shape torch.Size([1, 1, 256, 256]) requires_grad True
 
         F_estimated, Phi_estimated = self.get_estimates(t)
 

@@ -96,8 +96,8 @@ if __name__ == "__main__":
     dset = BatchDataset(data_dir, num=args.num_t, im_prefix=args.im_prefix, max_intensity=args.max_intensity,zero_freq=args.zero_freq)
 
     print('Loading x_batches y_batches ...')
-    x_batches = torch.load(f'./DATA/x_batches.pt')          # simulated data generated with generator_data_3D   aberrations   100x256x256x256
-    y_batches = torch.load(f'./DATA/y_batches.pt')
+    x_batches = torch.load(f'./DATA/x_batches.pt')          # simulated data generated with generator_data_3D   introduced aberrations   100x256x256x256 numberxZxXxY
+    y_batches = torch.load(f'./DATA/y_batches.pt')          # simulated data generated with generator_data_3D   measurements with sample and introduced aberration    100x256x256x256 numberxZxXxY
     print('done')
 
     print('x_batches', x_batches.shape)
@@ -164,7 +164,7 @@ if __name__ == "__main__":
 
                 y_batch = torch.squeeze(y_batch) * 10
 
-                cur_t = plane/256
+                cur_t = plane/256           # time embedding is replaced by Z position embedding
 
                 im_opt.zero_grad()
                 ph_opt.zero_grad()
@@ -172,11 +172,11 @@ if __name__ == "__main__":
                 y, F_estimated, Phi_estimated = net(torch.squeeze(x_batch), cur_t)
 
                 if gridsearch==0:
-                    loss = 2 * F.mse_loss(y, y_batch) + 5E-4 * TV(F_estimated)  # - torch.log(Phi_estimated.norm(1))
+                    loss = 2 * F.mse_loss(y, y_batch) + 5E-4 * TV(F_estimated)                                                  # TV on fluo
                 if gridsearch==1:
-                    loss = 2 * F.mse_loss(y, y_batch) + 2.5E-4 * TV(F_estimated)  # - torch.log(Phi_estimated.norm(1))
+                    loss = 2 * F.mse_loss(y, y_batch) + 2.5E-4 * TV(F_estimated)
                 if gridsearch==2:
-                    loss = 2 * F.mse_loss(y, y_batch) + 2E-4 * TV(F_estimated)  - 1E-4* torch.log(Phi_estimated.norm(1))
+                    loss = 2 * F.mse_loss(y, y_batch) + 2E-4 * TV(F_estimated)  - 1E-4* torch.log(Phi_estimated.norm(1))        # TV on fluo, Phi estimated diverges from null solution
                 if gridsearch==3:
                     loss = 2 * F.mse_loss(y, y_batch) + 2E-4 * TV(F_estimated)  - 1E-3* torch.log(Phi_estimated.norm(1))
                 if gridsearch==4:
@@ -184,18 +184,18 @@ if __name__ == "__main__":
                 if gridsearch==5:
                     loss = 2 * F.mse_loss(y, y_batch) + 2E-4 * TV(F_estimated)  - 1E-1 * torch.log(Phi_estimated.norm(1))
                 if gridsearch==6:
-                    loss = 2 * F.mse_loss(y, y_batch) + 2E-4 * TV(F_estimated) + 1E-7 * F_estimated.norm(1)  # - torch.log(Phi_estimated.norm(1))
+                    loss = 2 * F.mse_loss(y, y_batch) + 2E-4 * TV(F_estimated) + 1E-7 * F_estimated.norm(1)                     # TV on fluo, L1 norm on fluo
                 if gridsearch==7:
-                    loss = 2 * F.mse_loss(y, y_batch) + 2E-4 * TV(F_estimated) + 1E-6 * F_estimated.norm(1)  # - torch.log(Phi_estimated.norm(1))
+                    loss = 2 * F.mse_loss(y, y_batch) + 2E-4 * TV(F_estimated) + 1E-6 * F_estimated.norm(1)
                 if gridsearch==8:
-                    loss = 2 * F.mse_loss(y, y_batch) + 2E-4 * TV(F_estimated) + 1E-5 * F_estimated.norm(1)  # - torch.log(Phi_estimated.norm(1))
+                    loss = 2 * F.mse_loss(y, y_batch) + 2E-4 * TV(F_estimated) + 1E-5 * F_estimated.norm(1)
                 if gridsearch==9:
-                    loss = 2 * F.mse_loss(y, y_batch) + 2E-4 * TV(F_estimated) + 1E-4 * F_estimated.norm(1)  # - torch.log(Phi_estimated.norm(1))
+                    loss = 2 * F.mse_loss(y, y_batch) + 2E-4 * TV(F_estimated) + 1E-4 * F_estimated.norm(1)
 
                 loss.backward()
 
                 im_opt.step()
-                # ph_opt.step()
+                ph_opt.step()
 
                 if total_it%2000==0:
 
