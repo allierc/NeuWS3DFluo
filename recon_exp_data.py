@@ -155,12 +155,9 @@ if __name__ == "__main__":
 
             x_batch, y_batch = x_batches[idx], y_batches[idx]               # taking batches of training data, introduced aberration and corresponding acquisition
 
-
-
-            cur_t = (idx / (args.num_t - 1)) - 0.5          # time information -0.5 0.5
+            cur_t = (idx / (args.num_t - 1)) - 0.5                          # time information -0.5 0.5
 
             im_opt.zero_grad();  ph_opt.zero_grad()
-            # optimizer.zero_grad()
 
             y, _kernel, sim_g, sim_phs, I_est = net(x_batch, cur_t)         # run model plugs into network.py goes into TemporalZernNet (forward)  and StaticDiffuseNet (get all estimations)
                                                                             # y simulated measurement (I in eq.) forward model with unknown obejct unknown aberration and known SLM aberration to be compared with y_batch
@@ -180,6 +177,7 @@ if __name__ == "__main__":
 
             ph_opt.step()
             im_opt.step()
+
             # aber_opt.step()
             # optimizer.step()
 
