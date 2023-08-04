@@ -188,9 +188,8 @@ class G_SpaceTime(nn.Module):
 
 
     def forward(self, t):
+
         spatial_feats = self.spatial_net().unsqueeze(0).repeat(1, 1, 1)
-
-
         spatial_feats = spatial_feats.reshape(-1, self.x_width, self.y_width, spatial_feats.shape[-1])
         spatial_feats = spatial_feats.permute(0, 3, 1, 2)
 
@@ -205,7 +204,7 @@ class G_SpaceTime(nn.Module):
 
         output = self.renderer(t_input.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
 
-        # output = F.leaky_relu(output, 0.001)
+        output = F.leaky_relu(output, 0.001)
 
         return output
 
@@ -309,7 +308,7 @@ class StaticDiffuseNet(TemporalZernNet):
         # for dn_plane in range (int(t*256),256):
         #         Phi_estimated[dn_plane,:,:] = torch.squeeze(self.dn_im(dn_plane/256))
 
-        return torch.squeeze(torch.abs(I_est)), torch.squeeze(Phi_estimated)
+        return torch.squeeze(I_est), torch.squeeze(Phi_estimated)
 
 
 # import matplotlib.pyplot as plt
