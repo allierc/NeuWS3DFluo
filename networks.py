@@ -68,7 +68,7 @@ class G_FeatureTensor(nn.Module):
         x_mode, y_mode = x_dim // ds_factor, y_dim // ds_factor
         self.num_feats = num_feats
 
-        self.data = nn.Parameter( 0.1 * torch.randn((x_mode, y_mode, num_feats)), requires_grad=True)
+        self.data = nn.Parameter( 0.1 * torch.randn((x_mode, y_mode, num_feats)), requires_grad=True)            # learnable table of 128x128x32 object representation
 
         half_dx, half_dy =  0.5 / x_dim, 0.5 / y_dim
         xs = torch.linspace(half_dx, 1-half_dx, x_dim)
@@ -118,8 +118,8 @@ class G_Tensor(G_FeatureTensor):
         self.renderer = G_Renderer()
 
     def forward(self):
-        feats = self.sample()   # torch.Size([16384, 32]) 128*128*32 requires_grad True
-        return self.renderer(feats).reshape([-1, 1, self.x_dim, self.y_dim])
+        feats = self.sample()  # take the mixed table  # torch.Size([16384, 32]) 128*128*32 requires_grad True
+        return self.renderer(feats).reshape([-1, 1, self.x_dim, self.y_dim])   # goes into MLP
 
 
 class G_PatchTensor(nn.Module):
@@ -369,13 +369,7 @@ class StaticDiffuseNet(TemporalZernNet):
 
 
     def get_estimates(self, t):
-        I_est = self.g_im()     #torch.Size([1, 1, 256, 256])  requires_grad=True
-
-        # import matplotlib.pyplot as plt
-        # im = I_est
-        # im = im.reshape([-1, 1, 256, 256])
-        # im = im.detach().cpu().numpy()
-        # plt.imshow(np.squeeze(im))
+        I_est = self.g_im()     # neural representation of the unknown object
 
         if not self.static_phase:
             cat_grid = self.t_grid[:t.shape[0]] * t.unsqueeze(1).unsqueeze(1).unsqueeze(1)
@@ -389,7 +383,8 @@ class StaticDiffuseNet(TemporalZernNet):
             g_in = torch.cat([self.basis[:t.shape[0]], cat_grid], dim = -1)
         else:
             cat_grid = self.t_grid[:t.shape[0]]
-            g_in = self.basis[:t.shape[0]]      # torch.Size([8, 256, 256, 28]) requires_grad=False
+            g_in = self.basis[:t.shape[0]]              # zernike polynomials first 28
+                                                        # torch.Size([8, 256, 256, 28]) requires_grad=False
 
         g_out = self.g_g(g_in)
         g_out = g_out.permute(0, 3, 1, 2)       # torch.Size([8, 256, 256, 2]) requires_grad=True

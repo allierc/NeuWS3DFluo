@@ -68,7 +68,6 @@ if __name__ == "__main__":
 
     bDynamic = False
 
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--root_dir', default='.', type=str)
     if bDynamic:
@@ -111,9 +110,8 @@ if __name__ == "__main__":
     ############
     # Training preparations
     dset = BatchDataset(data_dir, num=args.num_t, im_prefix=args.im_prefix, max_intensity=args.max_intensity, zero_freq=args.zero_freq)
-    x_batches = torch.cat(dset.xs, axis=0).unsqueeze(1).to(DEVICE)
-    y_batches = torch.stack(dset.ys, axis=0).to(DEVICE)
-
+    x_batches = torch.cat(dset.xs, axis=0).unsqueeze(1).to(DEVICE)  #100x256x256 SLM images (phase)
+    y_batches = torch.stack(dset.ys, axis=0).to(DEVICE)             #100x256c256 acquisitions
     if bDynamic:
         args.dynamic_scene = True
         args.static_phase = False
@@ -126,6 +124,9 @@ if __name__ == "__main__":
     print('static_phase', args.static_phase)
     print('dynamic_scene',args.dynamic_scene)
 
+
+    # model initialization
+
     if args.dynamic_scene:
         net = MovingDiffuse(width=args.width, PSF_size=PSF_size, use_FFT=True, bsize=args.batch_size, phs_layers=args.phs_layers, static_phase=args.static_phase)
     else:
@@ -133,12 +134,11 @@ if __name__ == "__main__":
 
     net = net.to(DEVICE)
 
-    im_opt = torch.optim.Adam(net.g_im.parameters(), lr=args.init_lr)
-    ph_opt = torch.optim.Adam(net.g_g.parameters(), lr=args.init_lr)
+    im_opt = torch.optim.Adam(net.g_im.parameters(), lr=args.init_lr)       # optimizer for unknown object
+    ph_opt = torch.optim.Adam(net.g_g.parameters(), lr=args.init_lr)        # opitmizer for unknown aberration
+
     im_sche = torch.optim.lr_scheduler.CosineAnnealingLR(im_opt, T_max = args.num_epochs, eta_min=args.final_lr)
     ph_sche = torch.optim.lr_scheduler.CosineAnnealingLR(ph_opt, T_max = args.num_epochs, eta_min=args.final_lr)
-
-    # optimizer = torch.optim.Adam(net.parameters(), lr=args.init_lr)  # , weight_decay=5e-3)
 
     total_it = 0
     t = tqdm.trange(args.num_epochs, disable=args.silence_tqdm)
@@ -152,19 +152,21 @@ if __name__ == "__main__":
 
         for it in range(0, len(dset), args.batch_size):
             idx = idxs[it:it+args.batch_size]
-            x_batch, y_batch = x_batches[idx], y_batches[idx]
-            cur_t = (idx / (args.num_t - 1)) - 0.5
+
+            x_batch, y_batch = x_batches[idx], y_batches[idx]               # taking batches of training data, introduced aberration and corresponding acquisition
+
+
+
+            cur_t = (idx / (args.num_t - 1)) - 0.5          # time information -0.5 0.5
+
             im_opt.zero_grad();  ph_opt.zero_grad()
             # optimizer.zero_grad()
 
-            y, _kernel, sim_g, sim_phs, I_est = net(x_batch, cur_t)
-
-            import matplotlib.pyplot as plt
-            plt.ion()
-            im = x_batch[2, 0,:, :]
-            im = im.detach().cpu().numpy()
-            plt.imshow(np.squeeze(im))
-
+            y, _kernel, sim_g, sim_phs, I_est = net(x_batch, cur_t)         # run model plugs into network.py goes into TemporalZernNet (forward)  and StaticDiffuseNet (get all estimations)
+                                                                            # y simulated measurement (I in eq.) forward model with unknown obejct unknown aberration and known SLM aberration to be compared with y_batch
+                                                                            # I_est the estimated unknowm object (O in eq.)
+                                                                            # sim_g modulus of estimated aberration ( M in eq.)
+                                                                            # sim_phs phase of estimated aberration ( Phi in eq.)
             mse_loss = F.mse_loss(y, y_batch)
 
             # if epoch>100:
