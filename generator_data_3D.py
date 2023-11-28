@@ -98,7 +98,9 @@ def data_train():
 
         pred, dn_est, fluo_est = net(plane)
 
-        loss = F.mse_loss(pred[:,plane], y_batches[:,plane]) 
+        loss_image_negative = torch.relu(-dn_est).norm(2) + 1E4*torch.relu(-fluo_est).norm(2)
+
+        loss = F.mse_loss(pred[:,plane], y_batches[:,plane]) + loss_image_negative
 
         loss.backward()
 

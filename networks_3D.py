@@ -226,7 +226,7 @@ class G_Model3D(nn.Module):
         # img_2 = self.img_2(z)
         #
         # return img_1, img_2
-        return torch.relu(img_1)
+        return img_1
 
 
 class G_FeatureTensor(nn.Module):
