@@ -61,33 +61,27 @@ if __name__ == '__main__':
     bDefocus = False
     bSingle = True
 
-
     copyfile(os.path.realpath(__file__), os.path.join(f'./Pics_input/', 'generating_code.py'))
 
     torch.cuda.empty_cache()
     bpm = bpmPytorch(model_config)      # just to get the pupil function
 
     print(' ')
-    start = timer()
-
-    x_batches = torch.zeros((1, 30, 512, 512), dtype=torch.cfloat, device=device)
     y_batches = torch.zeros((1, 30, 512, 512), device=device)
-    phiL = torch.rand([bpm.Nx, bpm.Ny, 1000], dtype=torch.float32, requires_grad=False, device='cuda:0') * 2 * np.pi
 
     for plane in tqdm(range(0, bpm.Nz)):
-
+        Istack = np.zeros([bpm.Nx, bpm.Ny, 1])
+        phiL = torch.rand([bpm.Nx, bpm.Ny, 1000], dtype=torch.float32, requires_grad=False,device='cuda:0') * 2 * np.pi
         I = torch.tensor(np.zeros((bpm.Nx, bpm.Ny)), device=bpm.device, dtype=bpm.dtype, requires_grad=False)
         for w in range(0, Niter):
             zoi = np.random.randint(1000 - bpm.Nz)
             with torch.no_grad():
                 I = I + bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz], naber=0)
-        y_batches[0, plane, :, :]=I/Niter
+        y_batches[:, plane:plane + 1, :, :] = I
 
-    end = timer()
-    print(f'elapsed time: {np.round(end-start),2} sec.')
-
-    y_batches = torch.permute(y_batches[0],(2,0,1))
     imwrite('./stack.tif',y_batches.detach().cpu().numpy().squeeze() )
+
+    #
     #
     # else :
     #
