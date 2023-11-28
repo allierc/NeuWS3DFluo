@@ -25,6 +25,46 @@ import datetime
 from torch.fft import fft2, ifft2, fftshift, ifftshift
 from networks_3D import *
 
+def TV(params):
+    if len(params.shape) == 2:
+        nb_voxel = (params.shape[0]) * (params.shape[1])
+        sx,sy= grads(params)
+        TVloss = torch.sqrt(sx ** 2 + sy ** 2 + 1e-8).sum()
+    elif len(params.shape)==3:
+        nb_voxel = (params.shape[0]) * (params.shape[1]) * (params.shape[2])
+        [sx, sy, sz] = grads(params)
+        TVloss = torch.sqrt(sx ** 2 + sy ** 2 + sz ** 2 + 1e-8).sum()
+
+    return TVloss / (nb_voxel)
+
+def grads(params):
+    if len(params.shape)==2:
+        params_sx = torch.roll(params, -1, 0)
+        params_sy = torch.roll(params, -1, 1)
+
+        sx = -(params - params_sx)
+        sy = -(params - params_sy)
+
+        sx[-1, :] = 0
+        sy[:, -1] = 0
+
+        return [sx,sy]
+
+    elif len(params.shape)==3:
+        params_sx = torch.roll(params, -1, 0)
+        params_sy = torch.roll(params, -1, 1)
+        params_sz = torch.roll(params, -1, 2)
+
+        sx = -(params - params_sx)
+        sy = -(params - params_sy)
+        sz = -(params - params_sz)
+
+        sx[-1, :, :] = 0
+        sy[:, -1, :] = 0
+        sz[:, :, -1] = 0
+
+        return [sx,sy,sz]
+
 def data_generate():
     print(' ')
 
@@ -100,12 +140,13 @@ def data_train():
 
         loss_image_negative = 1E4*torch.relu(-fluo_est).norm(2)
 
-        loss = F.mse_loss(pred[:,plane], y_batches[:,plane]) + loss_image_negative
+        loss = F.mse_loss(pred[:,plane], y_batches[:,plane]) + loss_image_negative + TV(fluo_est).norm(2) * 5E3
 
         loss.backward()
 
         optimizer_fluo_3D.step()
-        optimizer_dn_3D.step()
+        if epoch>1000:
+            optimizer_dn_3D.step()
 
         print (f'epoch: {epoch} loss: {np.round(loss.item()/1E6,2)}')
 
