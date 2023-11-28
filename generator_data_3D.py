@@ -69,9 +69,10 @@ if __name__ == '__main__':
     print(' ')
     y_batches = torch.zeros((1, 30, 512, 512), device=device)
 
+    start = timer()
+    phiL = torch.rand([bpm.Nx, bpm.Ny, 1000], dtype=torch.float32, requires_grad=False, device='cuda:0') * 2 * np.pi
+
     for plane in tqdm(range(0, bpm.Nz)):
-        Istack = np.zeros([bpm.Nx, bpm.Ny, 1])
-        phiL = torch.rand([bpm.Nx, bpm.Ny, 1000], dtype=torch.float32, requires_grad=False,device='cuda:0') * 2 * np.pi
         I = torch.tensor(np.zeros((bpm.Nx, bpm.Ny)), device=bpm.device, dtype=bpm.dtype, requires_grad=False)
         for w in range(0, Niter):
             zoi = np.random.randint(1000 - bpm.Nz)
@@ -79,7 +80,12 @@ if __name__ == '__main__':
                 I = I + bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz], naber=0)
         y_batches[:, plane:plane + 1, :, :] = I
 
+    end = timer()
+    print(f'elapsed time : {np.round(end - start,2)}')
+
     imwrite('./stack.tif',y_batches.detach().cpu().numpy().squeeze() )
+
+
 
     #
     #
