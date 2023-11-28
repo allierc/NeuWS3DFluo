@@ -85,8 +85,6 @@ class bpmPytorch(torch.nn.Module):
 
         self.f = nn.Parameter(torch.tensor(np.zeros([256, 256]),  device=self.device, dtype=self.dtype, requires_grad=True))
 
-        self.data = nn.Parameter(torch.zeros((self.image_width, self.image_width, self.Nz, self.num_feats), device=self.device, requires_grad=True))
-
         self.Npixels = self.image_width * self.image_width
         self.field_shape = (self.image_width, self.image_width)
 
@@ -144,18 +142,12 @@ class bpmPytorch(torch.nn.Module):
         k0 = 2 * np.pi / self.wavelength
 
         self.field = torch.complex(
-            torch.zeros(self.field_shape, dtype=torch.float32, device=self.device, requires_grad=False),
-            torch.zeros(self.field_shape, dtype=torch.float32, device=self.device, requires_grad=False))
+            torch.zeros(self.field_shape, dtype=torch.float32, device=self.device),
+            torch.zeros(self.field_shape, dtype=torch.float32, device=self.device))
 
         coef=torch.tensor(self.dz*k0*1.j, dtype=torch.cfloat, requires_grad=False, device=self.device)
 
-        if self.bFit:
-            sample=self.renderer(self.data)
-            self.dn0_layers = sample[:,:,:,0].unbind(dim=2)
-            self.fluo_layers = sample[:,:,:,1].unbind(dim=2)
-            self.fluo_layer = torch.squeeze(self.data[plane,:,:,0])
-        else:
-             self.fluo_layer = self.fluo_layers[plane]
+        self.fluo_layer = self.fluo_layers[plane]
 
         phi_layers=phi.unbind(dim=2)
 
@@ -174,9 +166,7 @@ class bpmPytorch(torch.nn.Module):
             self.field = torch.mul(self.field,self.Hz_up)
 
         self.field = self.field.repeat((self.n_gammas+1, 1, 1))
-        I = torch.abs(ifft2(self.field * self.gammas)) ** 2
-
-        return I
+        return torch.abs(ifft2(self.field * self.gammas)) ** 2
 
     def FresnelPropag(self, dz=0, fdir=[0, 0]):
 

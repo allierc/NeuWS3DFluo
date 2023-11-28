@@ -89,19 +89,40 @@ def data_train():
     loss2_list = []  # Iest - acquisition
     loss3_list = []  # I_gt - acquisition
 
-    for epoch in tqdm(range(model_config['num_epochs'])):
+    for epoch in range(model_config['num_epochs']):
 
         optimizer_fluo_3D.zero_grad();
         optimizer_dn_3D.zero_grad();
 
-        dn_est, fluo_est = net()
+        plane = np.random.randint(bpm.Nz)
 
-        loss = dn_est.norm(2) + fluo_est.norm(2)
+        pred, dn_est, fluo_est = net(plane)
+
+        loss = F.mse_loss(pred[:,plane], y_batches[:,plane]) 
 
         loss.backward()
 
         optimizer_fluo_3D.step()
         optimizer_dn_3D.step()
+
+        print (f'epoch: {epoch} loss: {np.round(loss.item()/1E6,2)}')
+
+        if epoch%100==0:
+
+            # torch.save(pred, f'./{log_dir}/pred_{epoch}.pt')
+            # torch.save(dn_est, f'./{log_dir}/dn_est{epoch}.pt')
+            # torch.save(fluo_est, f'./{log_dir}/fluo_est{epoch}.pt')
+            imwrite(f'./{log_dir}/pred_{epoch}.tif', y_batches[0,29].detach().cpu().numpy().squeeze())
+            fluo_est = torch.moveaxis(fluo_est, 0, -1)
+            fluo_est = torch.moveaxis(fluo_est, 0, -1)
+            dn_est = torch.moveaxis(dn_est, 0, -1)
+            dn_est = torch.moveaxis(dn_est, 0, -1)
+            imwrite(f'./{log_dir}/dn_est_{epoch}.tif', dn_est.detach().cpu().numpy().squeeze())
+            imwrite(f'./{log_dir}/fluo_est_{epoch}.tif', fluo_est.detach().cpu().numpy().squeeze())
+
+
+
+
 
 
 

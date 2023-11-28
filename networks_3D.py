@@ -226,7 +226,7 @@ class G_Model3D(nn.Module):
         # img_2 = self.img_2(z)
         #
         # return img_1, img_2
-        return img_1
+        return torch.relu(img_1)
 
 
 class G_FeatureTensor(nn.Module):
@@ -371,17 +371,43 @@ class ZernNet(nn.Module):
         print(f'Using FFT approximation of convolution: {self.use_FFT}')
         self.static_phase = static_phase
 
-    def forward(self):
+    def forward(self, plane):
 
         z_= torch.linspace(0, 30, steps=30,device=DEVICE)
 
         fluo_est = self.g_fluo_3D(z_)
         fluo_est = fluo_est.squeeze()
+        fluo_est = torch.moveaxis(fluo_est, 0, -1)
 
         dn_est = self.g_dn_3D(z_)
         dn_est = dn_est.squeeze()
+        dn_est = torch.moveaxis(dn_est, 0, -1)
 
-        return dn_est, fluo_est
+        y_pred = torch.zeros((self.bpm.n_gammas + 1, self.bpm.Nz, self.bpm.image_width, self.bpm.image_width), device=DEVICE)
+
+        self.bpm.dn0_layers = dn_est.unbind(dim=2)
+        self.bpm.fluo_layers = fluo_est.unbind(dim=2)
+
+        self.bpm.dn0 = dn_est
+        self.bpm.fluo = fluo_est
+
+        phiL = torch.rand([self.bpm.image_width, self.bpm.image_width, 1000], dtype=torch.float32, requires_grad=False,device=DEVICE) * 2 * np.pi
+
+        self.bpm.phi_layers = phiL.unbind(dim=2)
+
+        Niter = 200
+
+        # for plane in range(0, self.bpm.Nz):
+
+        for w in range(0, Niter):
+            zoi = np.random.randint(1000 - self.bpm.Nz)
+            if w==0:
+                I = self.bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + self.bpm.Nz], naber=0)
+            else:
+                I = I + self.bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + self.bpm.Nz], naber=0)
+        y_pred[:, plane:plane + 1, :, :] = I[:, None, :, :]
+
+        return y_pred, dn_est, fluo_est
 
     def calculate_image(self, object, aberration, pupil):
         pupil_function = pupil.values * torch.exp(1j * aberration)
