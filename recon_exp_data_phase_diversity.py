@@ -5,10 +5,9 @@ import matplotlib.gridspec as gridspec
 import scipy.io as sio
 import numpy as np
 from astropy import units as u
-import yaml  # need to install pyyaml
+import yaml # need to install pyyaml
 
 import torch
-
 print(f"Using PyTorch Version: {torch.__version__}")
 torch.manual_seed(0)
 torch.backends.cudnn.benchmark = False
@@ -34,7 +33,8 @@ import datetime
 
 DEVICE = 'cuda'
 
-config_list = ['config_16']
+config_list = ['config_13']
+
 
 if __name__ == "__main__":
 
@@ -49,9 +49,8 @@ if __name__ == "__main__":
         # Assert that config file is valid
         assert model_config['num_polynomials_gammas'] >= 3, 'num_polynomials_gammas must be >= 3'
         # If optimize_phase_diversities_with_mlp is True, assert that input_gammas_zernike either does not exist as parameter in config file or is empty string
-        assert not (model_config['optimize_phase_diversities_with_mlp'] and 'input_gammas_zernike' in model_config and
-                    model_config[
-                        'input_gammas_zernike']), 'input_gammas_zernike must be empty string if optimize_phase_diversities_with_mlp is True'
+        assert not (model_config['optimize_phase_diversities_with_mlp'] and 'input_gammas_zernike' in model_config and model_config['input_gammas_zernike']), 'input_gammas_zernike must be empty string if optimize_phase_diversities_with_mlp is True'
+
 
         n_gammas = model_config['n_gammas']
         b_gamma_optimization = model_config['b_gamma_optimization']
@@ -61,25 +60,15 @@ if __name__ == "__main__":
         numerical_aperture = model_config['numerical_aperture']
         w_num, w_unit = model_config['wavelength'].split()
         wavelength = float(w_num) * u.Unit(w_unit)
-        num_polynomials = model_config['num_polynomials_gammas'] - 3  # NOTE: don't include piston and tip/tilt
+        num_polynomials = model_config['num_polynomials_gammas'] - 3 # NOTE: don't include piston and tip/tilt
 
-        conversion_factor_rms_pi = 2 * np.pi / wavelength.to(
-            u.um).value  # Conversion factor to convert RMS between phase and length units
-        ansi_indices = np.arange(3, num_polynomials + 3)  # NOTE: don't include piston and tip/tilt
-        if '.txt' in model_config['zernike_coefficients_gt']:
-            tmp = np.loadtxt(model_config['zernike_coefficients_gt'])
-            zernike_coefficients_gt = [z * conversion_factor_rms_pi for z in tmp]
-            zernike_coefficients_gt[0] = zernike_coefficients_gt * 0
-        else:
-            zernike_coefficients_gt = model_config['zernike_coefficients_gt']
-            zernike_coefficients_gt = [z * conversion_factor_rms_pi for z in zernike_coefficients_gt]
-
-        if 'input_gammas_zernike' in model_config and isinstance(model_config['input_gammas_zernike'],
-                                                                 str):  # if input_gammas_zernike exists and is string, load file
-            if '.txt' in model_config['input_gammas_zernike']:
-                tmp = np.loadtxt(model_config['input_gammas_zernike'])
-            elif '.csv' in model_config['input_gammas_zernike']:
-                model_config['input_gammas_zernike'] = np.loadtxt(model_config['input_gammas_zernike'], delimiter=',')
+        conversion_factor_rms_pi = 2*np.pi / wavelength.to(u.um).value # Conversion factor to convert RMS between phase and length units
+        ansi_indices = np.arange(3, num_polynomials+3) # NOTE: don't include piston and tip/tilt
+        zernike_coefficients_gt = model_config['zernike_coefficients_gt']
+        zernike_coefficients_gt = [z * conversion_factor_rms_pi for z in zernike_coefficients_gt]
+        
+        if 'input_gammas_zernike' in model_config and isinstance(model_config['input_gammas_zernike'], str): # if input_gammas_zernike exists and is string, load file
+            model_config['input_gammas_zernike'] = np.loadtxt(model_config['input_gammas_zernike'], delimiter=',')
         if 'input_gammas_zernike' not in model_config:
             input_gammas_zernike = []
         else:
@@ -112,8 +101,8 @@ if __name__ == "__main__":
             object_gt = imageio.imread(model_config['acquisition_GT_data'])
         object_gt = object_gt / np.max(object_gt)
         object_gt = torch.FloatTensor(object_gt).to(DEVICE)
-        object_gt = object_gt.repeat(n_gammas + 1, 1, 1)
-        image_width = object_gt.shape[-1]
+        object_gt = object_gt.repeat(n_gammas+1, 1, 1)
+        image_width = object_gt.shape[-1] 
 
         # Load data - acquisition data
         if 'acquisition_diversity_data' in model_config and model_config['acquisition_diversity_data']:
@@ -123,16 +112,16 @@ if __name__ == "__main__":
         else:
             acquisition_data = []
 
+
         ### Create network and optimizer
 
         # Create pupil and Zernike polynomials
-        pupil = Pupil(numerical_aperture=numerical_aperture, wavelength=wavelength, pixel_size=pixel_size,
-                      size_fourier_space=(image_width, image_width), device=DEVICE)
+        pupil = Pupil(numerical_aperture=numerical_aperture, wavelength=wavelength, pixel_size=pixel_size, size_fourier_space=(image_width, image_width), device=DEVICE)
         zernike_instance = ZernikePolynomials(pupil, index_convention='ansi', normalization=False)
 
         phase_aberration_gt = zernike_instance.get_aberration(ansi_indices, zernike_coefficients_gt)
         phase_aberration_gt = torch.FloatTensor(phase_aberration_gt).to(DEVICE)
-        phase_aberration_gt = phase_aberration_gt.repeat(n_gammas + 1, 1, 1)
+        phase_aberration_gt = phase_aberration_gt.repeat(n_gammas+1, 1, 1)
 
         net = StaticNet(zernike=zernike_instance,
                         pupil=pupil,
@@ -143,10 +132,9 @@ if __name__ == "__main__":
                         phs_layers=model_config['phs_layers'],
                         static_phase=model_config['static_phase'],
                         n_gammas=n_gammas,
-                        input_gammas_zernike=input_gammas_zernike,
-                        b_gamma_optimization=model_config['b_gamma_optimization'],
-                        num_polynomials_gammas=model_config['num_polynomials_gammas'] - 3,
-                        # NOTE: don't include piston and x/y tilts
+                        input_gammas_zernike = input_gammas_zernike,
+                        b_gamma_optimization = model_config['b_gamma_optimization'],
+                        num_polynomials_gammas = model_config['num_polynomials_gammas'] - 3, # NOTE: don't include piston and x/y tilts
                         acquisition_data=acquisition_data,
                         optimize_phase_diversities_with_mlp=model_config['optimize_phase_diversities_with_mlp'])
         net = net.to(DEVICE)
@@ -158,21 +146,20 @@ if __name__ == "__main__":
             param = parameter.numel()
             table.add_row([name, param])
             total_params += param
-        # print(table)
+        #print(table)
         print(f"Total Trainable Params: {total_params}")
 
         # Create optimizer
-        optimizer_object = torch.optim.Adam(net.g_im.parameters(), lr=model_config['init_lr'])  # Object optimizer
-        optimizer_phase = torch.optim.Adam(net.g_g.parameters(),
-                                           lr=model_config['init_lr'])  # Phase aberration optimizer (Zernike + MLP)
-
+        optimizer_object = torch.optim.Adam(net.g_im.parameters(), lr=model_config['init_lr']) # Object optimizer
+        optimizer_phase = torch.optim.Adam(net.g_g.parameters(), lr=model_config['init_lr']) # Phase aberration optimizer (Zernike + MLP)
+        
         # TODO: check if this variable exists in config file and if b_gamma_optimization is True
         if model_config['optimize_phase_diversities_with_mlp']:
-            optimizer_phase_diversities = torch.optim.Adam(net.gammas_nnr[:].parameters(), lr=model_config[
-                'init_lr'])  # Phase diversity optimizer (Zernike + MLP)
+            optimizer_phase_diversities = torch.optim.Adam(net.gammas_nnr[:].parameters(), lr=model_config['init_lr']) # Phase diversity optimizer (Zernike + MLP)
         else:
-            optimizer_phase_diversities = torch.optim.Adam([net.gammas_zernike], lr=model_config[
-                'init_lr'])  # Phase diversity optimizer (Zernike only, no MLP)
+            optimizer_phase_diversities = torch.optim.Adam([net.gammas_zernike], lr=model_config['init_lr'])  # Phase diversity optimizer (Zernike only, no MLP)
+
+
 
         ### Training loop
 
@@ -180,28 +167,24 @@ if __name__ == "__main__":
         t = tqdm.trange(model_config['num_epochs'])
         t0 = time.time()
 
-        loss0_list = []
-        loss1_list = []  # Iest - I_gt
-        loss2_list = []  # Iest - acquisition
-        loss3_list = []  # I_gt - acquisition
+        loss0_list=[]
+        loss1_list=[]   # Iest - I_gt
+        loss2_list=[]   # Iest - acquisition
+        loss3_list=[]   # I_gt - acquisition
 
         for epoch in t:
 
             ## Stop optimizing phase diversities and reset optimizers for object and phase
-            if (epoch == model_config['epoch_freeze_phase_diversities']) & model_config[
-                'do_freeze_phase_diversity_optimization']:
+            if (epoch == model_config['epoch_freeze_phase_diversities']) & model_config['do_freeze_phase_diversity_optimization']:
                 b_gamma_optimization = False
                 net.g_im = G_PatchTensor(image_width)
                 net.g_im.net.data.data = 0 * net.g_im.net.data.data
-                for layer in [net.g_g.layers[0], net.g_g.layers[1], net.g_g.layers[3],
-                              net.g_g.layers[5]]:  # NOTE: layers 0,1,3,5 are linear layers, layers 2,4, are LaekyReLU
+                for layer in [net.g_g.layers[0], net.g_g.layers[1], net.g_g.layers[3], net.g_g.layers[5]]: # NOTE: layers 0,1,3,5 are linear layers, layers 2,4, are LaekyReLU
                     nn.init.normal_(layer.weight, std=0.1)
                     nn.init.zeros_(layer.bias)
                 net = net.to(DEVICE)
-                optimizer_object = torch.optim.Adam(net.g_im.parameters(),
-                                                    lr=model_config['init_lr'])  # Reset object optimizer
-                optimizer_phase = torch.optim.Adam(net.g_g.parameters(), lr=model_config[
-                    'init_lr'])  # Rest phase aberration optimizer Zernike + MLP
+                optimizer_object = torch.optim.Adam(net.g_im.parameters(), lr=model_config['init_lr'])  # Reset object optimizer
+                optimizer_phase = torch.optim.Adam(net.g_g.parameters(), lr=model_config['init_lr'])  # Rest phase aberration optimizer Zernike + MLP
 
             ## Run optimization for object, phase (and phase diversities)
             # Set gradients to zero for next iteration
@@ -210,8 +193,7 @@ if __name__ == "__main__":
             if b_gamma_optimization:
                 optimizer_phase_diversities.zero_grad();
 
-            acquisition_est, acquisition_gt, gammas, _kernel, total_aberration_est, phase_aberration_est, object_est, gammas_raw = net(
-                object_gt, phase_aberration_gt)
+            acquisition_est, acquisition_gt, gammas, _kernel, total_aberration_est, phase_aberration_est, object_est, gammas_raw = net(object_gt, phase_aberration_gt)
 
             if 'acquisition_diversity_data' in model_config and model_config['acquisition_diversity_data']:
                 acquisition_gt = acquisition_data
@@ -222,26 +204,25 @@ if __name__ == "__main__":
             loss_gamma_std = 0
 
             for i in range(1, n_gammas):
-                for j in range(i + 1, n_gammas + 1):
-                    loss_ortho += (gammas[i, :, :] * gammas[j, :, :]).norm(2)
-            for i in range(1, n_gammas + 1):
-                loss_gamma_std -= torch.log(torch.std(gammas[i, :, :]) + 1e-8)
+                for j in range(i+1, n_gammas+1):
+                    loss_ortho += (gammas[i,:,:] * gammas[j,:,:]).norm(2)
+            for i in range(1, n_gammas+1):
+                loss_gamma_std -= torch.log(torch.std(gammas[i,:,:])+1e-8)
             for i in range(0, n_gammas):
-                loss_gamma_norm += torch.relu((torch.abs(gammas_raw[i]) - 4 * np.pi)).norm(2)
+                loss_gamma_norm += torch.relu((torch.abs(gammas_raw[i]) - 4*np.pi)).norm(2)
 
-            loss_phase_est = torch.relu((torch.abs(phase_aberration_est) - 4 * np.pi)).norm(2)
+            loss_phase_est = torch.relu((torch.abs(phase_aberration_est) - 4*np.pi)).norm(2)
             loss_image_negative = torch.relu(-object_est[0]).norm(2)
 
-            loss = regul_0 * F.mse_loss(acquisition_est,
-                                        acquisition_gt) + regul_1 * loss_ortho + regul_2 * loss_gamma_norm + regul_3 * loss_phase_est + regul_4 * loss_image_negative + regul_5 * loss_gamma_std
+            loss = regul_0 * F.mse_loss(acquisition_est, acquisition_gt) + regul_1 * loss_ortho + regul_2 * loss_gamma_norm + regul_3 * loss_phase_est + regul_4 * loss_image_negative + regul_5 *loss_gamma_std
 
             loss0_list.append(mse_loss.item())
             loss1_list.append(F.mse_loss(object_est[0], object_gt[0]).item())
             loss2_list.append(F.mse_loss(object_est[0], acquisition_gt[0]).item())
             loss3_list.append(F.mse_loss(object_gt[0], acquisition_gt[0]).item())
 
-            if epoch % 50 == 0:
-                np.save(f'{log_dir}/loss0_list', loss0_list)
+            if epoch%50==0:
+                np.save(f'{log_dir}/loss0_list',loss0_list)
                 np.save(f'{log_dir}/loss1_list', loss1_list)
                 np.save(f'{log_dir}/loss2_list', loss2_list)
                 np.save(f'{log_dir}/loss3_list', loss3_list)
@@ -256,36 +237,34 @@ if __name__ == "__main__":
 
             t.set_postfix(MSE=f'{mse_loss.item():.4e}')
 
-            if epoch % 5 == 0:
+            if epoch%5 == 0:
                 # Create plot (call function)
                 create_epoch_plot(epoch, object_gt, object_est, acquisition_gt, acquisition_est,
                                   phase_aberration_gt, phase_aberration_est, gammas, gammas_raw,
                                   loss0_list, loss1_list, loss2_list, loss3_list, n_gammas, f'{log_dir}/viz/')
 
-            if (epoch == model_config['epoch_freeze_phase_diversities']) & model_config[
-                'do_freeze_phase_diversity_optimization']:
-                gammas_zernike_coefficients = np.zeros((n_gammas + 1, num_polynomials))
+            if (epoch == model_config['epoch_freeze_phase_diversities']) & model_config['do_freeze_phase_diversity_optimization']:
+                gammas_zernike_coefficients = np.zeros((n_gammas+1, num_polynomials))
 
                 gammas = gammas.detach().cpu().numpy()
                 gammas = np.squeeze(gammas)
                 n_zernike_fit = model_config['num_polynomials_gammas']
                 zernike_basis_fit = zernike_instance.calculate_polynomials(np.arange(3, n_zernike_fit))
-                for i in range(1, n_gammas + 1):  # don't include first gamma (no phase diversity)
-                    zernike_coefficients = wavefront_to_coefficients(gammas[i, :, :], np.arange(3, n_zernike_fit),
-                                                                     pupil, index_convention='ansi')
+                for i in range(1, n_gammas+1): # don't include first gamma (no phase diversity)
+                    zernike_coefficients = wavefront_to_coefficients(gammas[i,:,:], np.arange(3, n_zernike_fit), pupil, index_convention='ansi')
                     zernike_coefficients_rms = zernike_coefficients / conversion_factor_rms_pi
                     np.savetxt(f'{log_dir}/gammas_{i}.csv', zernike_coefficients_rms, delimiter=',')
-                    print(f'Gamma {i}: {np.round(zernike_coefficients_rms, 5)}')
+                    print(f'Gamma {i}: {np.round(zernike_coefficients_rms,5)}')
 
-                    gammas_zernike_coefficients[i, :] = zernike_coefficients_rms
+                    gammas_zernike_coefficients[i,:] = zernike_coefficients_rms
 
                     imageio.imsave(f'{log_dir}/gammas_{i}.tif', gammas[i])
                     g = zernike_basis_fit * zernike_coefficients
-                    g = np.sum(g, axis=2)
+                    g = np.sum(g,axis=2)
                     imageio.imsave(f'{log_dir}/gammas_zernike_fit_{i}.tif', g)
 
                 # Save all gammas (except first gamma) as .mat file
-                sio.savemat(f'{log_dir}/gammas.mat', {'gammas': np.transpose(gammas[1:, :, :], (1, 2, 0))})
+                sio.savemat(f'{log_dir}/gammas.mat', {'gammas': np.transpose(gammas[1:,:,:], (1,2,0))})
                 # Save all gammas coefficients as csv
                 np.savetxt(f'{log_dir}/gammas_zernike_coefficients.csv', gammas_zernike_coefficients, delimiter=',')
 
@@ -301,8 +280,7 @@ if __name__ == "__main__":
         n_zernike_fit = model_config['num_polynomials_gammas']
         zernike_basis_fit = zernike_instance.calculate_polynomials(np.arange(3, n_zernike_fit))
 
-        zernike_coefficients = wavefront_to_coefficients(phase_aberration_zernike, np.arange(3, n_zernike_fit), pupil,
-                                                         index_convention='ansi')
+        zernike_coefficients = wavefront_to_coefficients(phase_aberration_zernike, np.arange(3, n_zernike_fit), pupil,index_convention='ansi')
 
         zernike_coefficients_rms = zernike_coefficients / conversion_factor_rms_pi
 

@@ -17,15 +17,21 @@ from BPM3Dfluo_V2 import bpmPytorch
 import torch.nn.functional as f
 from torch.fft import fft2, fftshift
 from shutil import copyfile
+from modules.pupil import Pupil
+from modules.zernike import ZernikePolynomials, wavefront_to_coefficients
+from astropy import units as u
+import yaml # need to install pyyaml
+import datetime
+from torch.fft import fft2, ifft2, fftshift, ifftshift
 
 if __name__ == '__main__':
 
     print('Init ...')
 
-    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = DEVICE
 
-    print(f'devicew: {device}')
+    print(f'device: {device}')
 
     PSF_size = 256
     num_polynomials = 48
@@ -35,50 +41,75 @@ if __name__ == '__main__':
     print(f'num_polynomials: {num_polynomials}')
     print(f'Niter: {Niter}')
 
-    model_config = {'nm': 1.33,
-                    'na': 1.0556,
-                    'dx': 0.1154,
-                    'dz': 1,
-                    'lbda': 0.5320,
-                    'volume': [512, 512, 30],
-                    'padding': False,
-                    'dtype': torch.float32,
-                    'device': 'cuda:0',
-                    'bAber': False,
-                    'bFit': False,
-                    'num_feats': 4,
-                    'out_path': "./Recons3D/",
-                    'fluo_path': "./Pics_input/Fluo_GT_boats_512.tif",
-                    'dn_path':"./Pics_input/dn_CElegans_GT_512_zeros.tif",
-                    'dn_factor': 4
-                    }
+    config = 'config_beads'
 
-    bDefocus = False
-    bSingle = True
+    # Create log directory
+    l_dir = os.path.join('.', 'log', config)
+    log_dir = os.path.join(l_dir, datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+    print('log_dir: {}'.format(log_dir))
+    os.makedirs(log_dir, exist_ok=True)
+    # os.makedirs(os.path.join(log_dir, 'viz'), exist_ok=True)
 
-    copyfile(os.path.realpath(__file__), os.path.join(f'./Pics_input/', 'generating_code.py'))
+    with open(f'./config/{config}.yaml', 'r') as file:
+        model_config = yaml.safe_load(file)
 
     torch.cuda.empty_cache()
     bpm = bpmPytorch(model_config)      # just to get the pupil function
 
+    num_polynomials = model_config['num_polynomials_gammas'] - 3  # NOTE: don't include piston and tip/tilt
+
+    conversion_factor_rms_pi = 2 * np.pi / bpm.wavelength  # Conversion factor to convert RMS between phase and length units
+    ansi_indices = np.arange(3, num_polynomials + 3)  # NOTE: don't include piston and tip/tilt
+    zernike_coefficients_gt = model_config['zernike_coefficients_gt']
+    zernike_coefficients_gt = [z * conversion_factor_rms_pi for z in zernike_coefficients_gt]
+
+    input_gammas_zernike = conversion_factor_rms_pi * np.array(model_config['input_gammas_zernike'])
+    n_gammas = model_config['n_gammas']
+    p_num, p_unit = model_config['pixel_size'].split()
+    pixel_size = float(p_num) * u.Unit(p_unit)
+    numerical_aperture = model_config['numerical_aperture']
+    w_num, w_unit = model_config['wavelength'].split()
+    wavelength = float(w_num) * u.Unit(w_unit)
+    image_width=bpm.image_width
+
+    pupil = Pupil(numerical_aperture=numerical_aperture, wavelength=wavelength, pixel_size=pixel_size,
+                  size_fourier_space=(image_width, image_width), device=DEVICE)
+    zernike_instance = ZernikePolynomials(pupil, index_convention='ansi', normalization=False)
+    phase_aberration_gt = zernike_instance.get_aberration(ansi_indices, zernike_coefficients_gt)
+    phase_aberration_gt = torch.FloatTensor(phase_aberration_gt).to(DEVICE)
+    # phase_aberration_gt = phase_aberration_gt.repeat(n_gammas + 1, 1, 1)
+
+    gammas = torch.zeros(n_gammas + 1, 1, image_width, image_width, device=DEVICE, dtype=torch.complex128)
+    for i in range(n_gammas + 1):
+       # phase_shift = fftshift ( torch.tensor(zernike_instance.get_aberration(ansi_indices, input_gammas_zernike[i]),device=DEVICE) * pupil.values + phase_aberration_gt)
+       phase_shift = fftshift(torch.tensor(zernike_instance.get_aberration(ansi_indices, input_gammas_zernike[i]),device=DEVICE) * pupil.values)
+       gammas[i, :, :, :] = torch.exp(1j * phase_shift)
+    gammas = gammas.squeeze()
+
     print(' ')
-    y_batches = torch.zeros((1, 30, 512, 512), device=device)
+    y_batches = torch.zeros((1, 30, image_width, image_width), device=device)
 
-    start = timer()
-    phiL = torch.rand([bpm.Nx, bpm.Ny, 1000], dtype=torch.float32, requires_grad=False, device='cuda:0') * 2 * np.pi
+    bpm.bAber=1
 
-    for plane in tqdm(range(0, bpm.Nz)):
-        I = torch.tensor(np.zeros((bpm.Nx, bpm.Ny)), device=bpm.device, dtype=bpm.dtype, requires_grad=False)
-        for w in range(0, Niter):
-            zoi = np.random.randint(1000 - bpm.Nz)
-            with torch.no_grad():
-                I = I + bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz], naber=0)
-        y_batches[:, plane:plane + 1, :, :] = I
+    for k in range(5):
 
-    end = timer()
-    print(f'elapsed time : {np.round(end - start,2)}')
+        bpm.gamma = gammas[k]
 
-    imwrite('./stack.tif',y_batches.detach().cpu().numpy().squeeze() )
+        start = timer()
+        phiL = torch.rand([bpm.image_width, bpm.image_width, 1000], dtype=torch.float32, requires_grad=False, device='cuda:0') * 2 * np.pi
+
+        for plane in tqdm(range(0, bpm.Nz)):
+            I = torch.tensor(np.zeros((bpm.image_width, bpm.image_width)), device=bpm.device, dtype=bpm.dtype, requires_grad=False)
+            for w in range(0, Niter):
+                zoi = np.random.randint(1000 - bpm.Nz)
+                with torch.no_grad():
+                    I = I + bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz], naber=0)
+            y_batches[:, plane:plane + 1, :, :] = I
+
+        end = timer()
+        print(f'elapsed time : {np.round(end - start,2)}')
+
+        imwrite(f'./{log_dir}/stack_{k}.tif',y_batches.detach().cpu().numpy().squeeze() )
 
 
 
@@ -115,12 +146,12 @@ if __name__ == '__main__':
     #         bpm.aber_layers = bpm.aber.unbind(dim=0)
     #         bpm.bAber = 2
     #
-    #         Istack = np.zeros([bpm.Nx, bpm.Ny, 100])
-    #         phiL = torch.rand([bpm.Nx, bpm.Ny, 1000], dtype=torch.float32, requires_grad=False, device='cuda:0') * 2 * np.pi
+    #         Istack = np.zeros([bpm.image_width, bpm.image_width, 100])
+    #         phiL = torch.rand([bpm.image_width, bpm.image_width, 1000], dtype=torch.float32, requires_grad=False, device='cuda:0') * 2 * np.pi
     #
     #         for naber in tqdm(range(100)):
     #
-    #             I = torch.tensor(np.zeros((bpm.Nx, bpm.Ny)), device=bpm.device, dtype=bpm.dtype, requires_grad=False)
+    #             I = torch.tensor(np.zeros((bpm.image_width, bpm.image_width)), device=bpm.device, dtype=bpm.dtype, requires_grad=False)
     #             for w in range(0, Niter):
     #                 zoi = np.random.randint(1000 - bpm.Nz)
     #                 with torch.no_grad():
