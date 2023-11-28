@@ -14,7 +14,7 @@ from tifffile import imwrite
 from tifffile import imread
 import logging
 from BPM3Dfluo_V2 import bpmPytorch
-import torch.nn.functional as f
+import torch.nn.functional as F
 from torch.fft import fft2, fftshift
 from shutil import copyfile
 from modules.pupil import Pupil
@@ -23,6 +23,7 @@ from astropy import units as u
 import yaml # need to install pyyaml
 import datetime
 from torch.fft import fft2, ifft2, fftshift, ifftshift
+from networks_3D import *
 
 def data_generate():
     print(' ')
@@ -52,7 +53,62 @@ def data_generate():
     torch.save(y_batches, f'./{log_dir}/y_batches.pt')
 
 def data_train():
+
     y_batches = torch.load(model_config['input_fluo_simulated_acquisition'], map_location=device)
+
+    net = StaticNet(zernike=zernike_instance,
+                    pupil=pupil,
+                    width=image_width,
+                    PSF_size=image_width,
+                    use_FFT=True,
+                    bsize=model_config['batch_size'],
+                    phs_layers=model_config['phs_layers'],
+                    static_phase=model_config['static_phase'],
+                    n_gammas=n_gammas,
+                    input_gammas_zernike=input_gammas_zernike,
+                    b_gamma_optimization=False,
+                    num_polynomials_gammas=model_config['num_polynomials_gammas'] - 3,
+                    # NOTE: don't include piston and x/y tilts
+                    acquisition_data=[],
+                    optimize_phase_diversities_with_mlp=False,
+                    z_mode=bpm.Nz,
+                    bpm=bpm)
+
+    net = net.to(DEVICE)
+
+    # Create optimizer
+    optimizer_fluo_3D = torch.optim.Adam(net.g_fluo_3D.parameters(), lr=model_config['init_lr'])  # Object optimizer
+    optimizer_dn_3D = torch.optim.Adam(net.g_dn_3D.parameters(), lr=model_config['init_lr'])
+
+    ### Training loop
+
+    total_it = 0
+
+    loss0_list = []
+    loss1_list = []  # Iest - I_gt
+    loss2_list = []  # Iest - acquisition
+    loss3_list = []  # I_gt - acquisition
+
+    for epoch in tqdm(range(model_config['num_epochs'])):
+
+        optimizer_fluo_3D.zero_grad();
+        optimizer_dn_3D.zero_grad();
+
+        dn_est, fluo_est = net()
+
+        loss = dn_est.norm(2) + fluo_est.norm(2)
+
+        loss.backward()
+
+        optimizer_fluo_3D.step()
+        optimizer_dn_3D.step()
+
+
+
+
+
+
+
 
 
 if __name__ == '__main__':

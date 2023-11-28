@@ -203,29 +203,30 @@ class G_Model3D(nn.Module):
             z_max=z_max,
             num_feats=num_feats,
         )
-        self.w, self.h = w, h
+        self.w, self.h, self.x_mode, self.y_mode, = w, h, x_mode, y_mode
         self.init_grids()
 
     def init_grids(self):
         self.img_1.create_coords(
             x_dim=self.w,
             y_dim=self.h,
-            x_max=self.img_real.x_mode,
-            y_max=self.img_real.y_mode,
+            x_max=self.x_mode,
+            y_max=self.y_mode,
         )
         self.img_2.create_coords(
             x_dim=self.w,
             y_dim=self.h,
-            x_max=self.img_imag.x_mode,
-            y_max=self.img_imag.y_mode,
+            x_max=self.x_mode,
+            y_max=self.y_mode,
         )
 
     def forward(self, z):
         # G_Tensor3D takes in a z value and returns the predicted 1-channel image of shape (w, h)
         img_1 = self.img_1(z)
-        img_2 = self.img_2(z)
-
-        return img_1, img_2
+        # img_2 = self.img_2(z)
+        #
+        # return img_1, img_2
+        return img_1
 
 
 class G_FeatureTensor(nn.Module):
@@ -265,8 +266,6 @@ class G_FeatureTensor(nn.Module):
 
     def forward(self):
         return self.sample()
-
-
 class G_Tensor(G_FeatureTensor):
     def __init__(self, x_dim, y_dim=None):
         if y_dim is None:
@@ -277,8 +276,6 @@ class G_Tensor(G_FeatureTensor):
     def forward(self):
         feats = self.sample()
         return self.renderer(feats).reshape([-1, 1, self.x_dim, self.y_dim])
-
-
 class G_PatchTensor(nn.Module):
     def __init__(self, width):
         super().__init__()
@@ -287,8 +284,6 @@ class G_PatchTensor(nn.Module):
     def forward(self):
         p = self.net()
         return p
-
-
 class Embedding(nn.Module):
     def __init__(self, in_channels, N_freqs, logscale=True):
         """
@@ -323,7 +318,6 @@ class Embedding(nn.Module):
 
         return torch.cat(out, -1)
 
-
 class MLP(nn.Module):
     def __init__(self, in_dim, hidden_dim, num_layers):
         super(MLP, self).__init__()
@@ -357,30 +351,17 @@ class MLP(nn.Module):
 
 class ZernNet(nn.Module):
     def __init__(self, zernike, pupil, width, PSF_size, phs_layers=2, use_FFT=True, bsize=8, use_pe=False,
-                 num_polynomials_gammas=20, static_phase=True, acquisition_data=[]):
+                 num_polynomials_gammas=20, static_phase=True, acquisition_data=[],z_mode = 30, bpm=[]):
         super().__init__()
 
-        self.g_im = G_PatchTensor(width)
+        self.bpm = bpm
 
-        if not use_pe:
-            zernike_basis = zernike.calculate_polynomials(np.arange(3, 3 + num_polynomials_gammas))
-            zernike_basis = torch.FloatTensor(zernike_basis).to(DEVICE)
-            self.basis = nn.Parameter(zernike_basis.unsqueeze(0).repeat(bsize, 1, 1, 1), requires_grad=False)
+        self.g_fluo_3D = G_Model3D(w=width,h=width,num_feats=8, x_mode=width,y_mode=width,z_mode=z_mode,z_min=0,z_max=z_mode)
+        self.g_dn_3D = G_Model3D(w=width, h=width, num_feats=8, x_mode=width, y_mode=width, z_mode=z_mode, z_min=0,z_max=z_mode)
 
-        else:
-            xs = torch.linspace(-1, 1, steps=PSF_size)
-            ys = torch.linspace(-1, 1, steps=PSF_size)
-            x, y = torch.meshgrid(xs, ys, indexing='xy')
-            basis = []
-            for i in range(1, 16):
-                basis.append(torch.sin(i * x))
-                basis.append(torch.sin(i * y))
-                basis.append(torch.cos(i * x))
-                basis.append(torch.cos(i * y))
-            self.basis = nn.Parameter(
-                torch.stack(basis, axis=-1).unsqueeze(0).repeat(bsize, 1, 1, 1),
-                requires_grad=False
-            )
+        zernike_basis = zernike.calculate_polynomials(np.arange(3, 3 + num_polynomials_gammas))
+        zernike_basis = torch.FloatTensor(zernike_basis).to(DEVICE)
+        self.basis = nn.Parameter(zernike_basis.unsqueeze(0).repeat(bsize, 1, 1, 1), requires_grad=False)
 
         hidden_dim = 32
         t_dim = 0  # 0 in static case # TODO: remove t_dim
@@ -390,18 +371,17 @@ class ZernNet(nn.Module):
         print(f'Using FFT approximation of convolution: {self.use_FFT}')
         self.static_phase = static_phase
 
-    def forward(self, object_gt, phase_aberration_gt):
-        object_est, total_aberration_est, phase_aberration_est, gammas, gammas_raw = self.get_estimates()
+    def forward(self):
 
-        # Estimated_acquisition
-        acquisition_est = self.calculate_image(object_est, phase_aberration_est + gammas, self.pupil)
+        z_= torch.linspace(0, 30, steps=30,device=DEVICE)
 
-        # Ground truth acquisition
-        acquisition_gt = self.calculate_image(object_gt, phase_aberration_gt + gammas, self.pupil)
+        fluo_est = self.g_fluo_3D(z_)
+        fluo_est = fluo_est.squeeze()
 
-        total_aberration_est = torch.squeeze(total_aberration_est)
-        kernel = []
-        return acquisition_est, acquisition_gt, gammas, kernel, total_aberration_est, phase_aberration_est, object_est, gammas_raw
+        dn_est = self.g_dn_3D(z_)
+        dn_est = dn_est.squeeze()
+
+        return dn_est, fluo_est
 
     def calculate_image(self, object, aberration, pupil):
         pupil_function = pupil.values * torch.exp(1j * aberration)
@@ -418,11 +398,12 @@ class ZernNet(nn.Module):
 
 
 class StaticNet(ZernNet):
+
     def __init__(self, zernike, pupil, width, PSF_size, phs_layers=2, use_FFT=True, bsize=8, use_pe=False,
                  static_phase=True, n_gammas=5, input_gammas_zernike=[], b_gamma_optimization=False,
-                 num_polynomials_gammas=20,acquisition_data=[], optimize_phase_diversities_with_mlp=True):
+                 num_polynomials_gammas=20,acquisition_data=[], optimize_phase_diversities_with_mlp=True,z_mode=30, bpm=[]):
         super().__init__(zernike, pupil, width, PSF_size, phs_layers=phs_layers, use_FFT=use_FFT, bsize=bsize,
-                         use_pe=use_pe, num_polynomials_gammas=num_polynomials_gammas, acquisition_data=acquisition_data)
+                         use_pe=use_pe, num_polynomials_gammas=num_polynomials_gammas, acquisition_data=acquisition_data, z_mode=z_mode, bpm=bpm)
         self.n_gammas = n_gammas
         self.pupil = pupil
         self.zernike = zernike
@@ -447,54 +428,6 @@ class StaticNet(ZernNet):
         else:
             self.gammas_zernike = []
 
-    def get_estimates(self):
-
-        object_est = self.g_im()  # Neural representation of estimated object
-
-
-        object_est = object_est.squeeze().repeat(self.n_gammas + 1, 1, 1)
-
-        g_in = self.basis[0]  # Zernike basis 1x15
-
-        g_out_gammas = []
-        g_out_gammas.append(self.gammas_nnr[0])  # Flat phase
-
-        for i in range(1, self.n_gammas + 1):
-            g_out_gammas.append(self.gammas_nnr[i](g_in))  # dim 1x256x256
-
-        g_in = self.basis  # Zernike basis 6x15
-        g_out_phi = self.g_g(
-            g_in)  # Neural representation of aberration from Zernike basis  dim 6 256 256 all identical
-
-        g_out_phi = g_out_phi.permute(0, 3, 1, 2)
-        phase_aberration_est = g_out_phi[:, 1:2] * self.pupil.values
-        amplitude_aberration_est = g_out_phi[:, 0:1]  # NOTE: Amplitude should be 1 in our case! Maybe remove it
-        total_aberration_est = amplitude_aberration_est * torch.exp(1j * phase_aberration_est)
-        phase_aberration_est = phase_aberration_est.squeeze()
-
-        if self.optimize_phase_diversities_with_mlp:
-            # Optimized phase diversities (gammas)
-            gammas = torch.zeros(self.n_gammas + 1, 1, self.bfp_size, self.bfp_size, device=DEVICE)
-            gammas_raw = []
-            for i in range(1, self.n_gammas + 1):
-                g = self.gammas_nnr[i](g_in[0])
-                g = g.permute(2, 0, 1)
-                gammas[i, :, :, :] = g[1:2] * self.pupil.values
-                gammas_raw.append(g[1:2])
-            gammas = gammas.squeeze()
-        else:
-            # TODO: assert that gammas_zernike is greater than 0 (len(self.gammas_zernike) > 0)
-            # Optimize Zernike coefficients for gammas without MLP
-            gammas = torch.zeros(self.n_gammas + 1, 1, self.bfp_size, self.bfp_size, device=DEVICE)
-            gammas_raw = []
-            for i in range(1, self.n_gammas + 1):
-                g = g_in[0] * self.gammas_zernike[i].repeat(self.bfp_size, self.bfp_size, 1)
-                g = torch.sum(g, axis=2).float()
-                gammas[i, :, :, :] = g * self.pupil.values
-                gammas_raw.append(g)
-            gammas = gammas.squeeze()
-
-        return object_est, total_aberration_est, phase_aberration_est, gammas, gammas_raw
 
     # TODO: the forward function is inherited from the parent class!
     # TODO: does it make sense to make StaticDiffuseNet a child class of TemporalZernNet
