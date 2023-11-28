@@ -41,7 +41,7 @@ if __name__ == '__main__':
     print(f'num_polynomials: {num_polynomials}')
     print(f'Niter: {Niter}')
 
-    config = 'config_beads'
+    config = 'config_grid'
 
     # Create log directory
     l_dir = os.path.join('.', 'log', config)
@@ -85,31 +85,29 @@ if __name__ == '__main__':
        # phase_shift = fftshift(torch.tensor(zernike_instance.get_aberration(ansi_indices, input_gammas_zernike[i]),device=DEVICE) * pupil.values)
        gammas[i, :, :, :] = torch.exp(1j * phase_shift)
     gammas = gammas.squeeze()
+    bpm.gammas = gammas
 
     print(' ')
-    y_batches = torch.zeros((1, 30, image_width, image_width), device=device)
 
-    bpm.bAber=1
+    y_batches = torch.zeros((bpm.n_gammas+1, 30, image_width, image_width), device=device)
 
-    for k in range(5):
+    start = timer()
+    phiL = torch.rand([bpm.image_width, bpm.image_width, 1000], dtype=torch.float32, requires_grad=False, device='cuda:0') * 2 * np.pi
 
-        bpm.gamma = gammas[k]
+    for plane in tqdm(range(0, bpm.Nz)):
+        I = torch.tensor(np.zeros((bpm.n_gammas+1,bpm.image_width, bpm.image_width)), device=bpm.device, dtype=bpm.dtype, requires_grad=False)
 
-        start = timer()
-        phiL = torch.rand([bpm.image_width, bpm.image_width, 1000], dtype=torch.float32, requires_grad=False, device='cuda:0') * 2 * np.pi
+        for w in range(0, Niter):
+            zoi = np.random.randint(1000 - bpm.Nz)
+            with torch.no_grad():
+                I = I + bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz], naber=0)
+        y_batches[:, plane:plane + 1, :, :] = I[:,None,:,:]
 
-        for plane in tqdm(range(0, bpm.Nz)):
-            I = torch.tensor(np.zeros((bpm.image_width, bpm.image_width)), device=bpm.device, dtype=bpm.dtype, requires_grad=False)
-            for w in range(0, Niter):
-                zoi = np.random.randint(1000 - bpm.Nz)
-                with torch.no_grad():
-                    I = I + bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz], naber=0)
-            y_batches[:, plane:plane + 1, :, :] = I
+    end = timer()
+    print(f'elapsed time : {np.round(end - start,2)}')
 
-        end = timer()
-        print(f'elapsed time : {np.round(end - start,2)}')
-
-        imwrite(f'./{log_dir}/stack_{k}.tif',y_batches.detach().cpu().numpy().squeeze() )
+    for k in range(bpm.n_gammas+1):
+        imwrite(f'./{log_dir}/stack_{k}.tif',y_batches[k].detach().cpu().numpy().squeeze() )
 
 
 
