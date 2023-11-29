@@ -56,7 +56,7 @@ class G_Renderer(nn.Module):
 
 class bpmPytorch(torch.nn.Module):
 
-    def __init__(self, model_config):
+    def __init__(self, model_config, device):
 
         super(bpmPytorch, self).__init__()
 
@@ -70,7 +70,7 @@ class bpmPytorch(torch.nn.Module):
         self.wavelength = float(p_num)
         self.volume = model_config['volume']
         self.padding = model_config['padding']
-        self.device = model_config['device']
+        self.device = device
         self.dtype = torch.float32
         self.bAber = model_config['bAber']
         self.num_feats = model_config['num_feats']
@@ -135,7 +135,7 @@ class bpmPytorch(torch.nn.Module):
         C = 1/C*pupil
         C = torch.nan_to_num(C, nan=0.0, posinf=0.0, neginf=0.0)
         imwrite('./C.tif', np.array(C.cpu()))
-        self.C = C
+        self.C = C.to(self.device)
 
     def forward(self, plane=None, phi=None, naber=0):
 

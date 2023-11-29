@@ -11,9 +11,6 @@ import numpy as np
 import torchvision.transforms
 from modules.utils import compute_zernike_basis, fft_2xPad_Conv2D
 
-DEVICE = 'cuda'  # TODO: take device from the main script
-
-
 class sine_act(nn.Module):
     def __init__(self):
         super().__init__()
@@ -350,17 +347,17 @@ class MLP(nn.Module):
 
 
 class ZernNet(nn.Module):
-    def __init__(self, zernike, pupil, width, PSF_size, phs_layers=2, use_FFT=True, bsize=8, use_pe=False,
-                 num_polynomials_gammas=20, static_phase=True, acquisition_data=[],z_mode = 30, bpm=[]):
+    def __init__(self, zernike, pupil, width, PSF_size, phs_layers=2, use_FFT=True, bsize=8, use_pe=False, num_polynomials_gammas=20, static_phase=True, acquisition_data=[],z_mode = 30, bpm=[], device=[]):
         super().__init__()
 
+        self.device = device
         self.bpm = bpm
 
         self.g_fluo_3D = G_Model3D(w=width,h=width,num_feats=16, x_mode=width,y_mode=width,z_mode=z_mode,z_min=0,z_max=z_mode)
         self.g_dn_3D = G_Model3D(w=width, h=width, num_feats=16, x_mode=width, y_mode=width, z_mode=z_mode, z_min=0,z_max=z_mode)
 
         zernike_basis = zernike.calculate_polynomials(np.arange(3, 3 + num_polynomials_gammas))
-        zernike_basis = torch.FloatTensor(zernike_basis).to(DEVICE)
+        zernike_basis = torch.FloatTensor(zernike_basis).to(self.device)
         self.basis = nn.Parameter(zernike_basis.unsqueeze(0).repeat(bsize, 1, 1, 1), requires_grad=False)
 
         hidden_dim = 32
@@ -396,12 +393,12 @@ class ZernNet(nn.Module):
         self.bpm.fluo_layers = fluo_est.unbind(dim=2)
         self.bpm.dn0_layers = dn_est.unbind(dim=2)
 
-        phiL = torch.rand([self.bpm.image_width, self.bpm.image_width, 1000], dtype=torch.float32, requires_grad=False,device=DEVICE) * 2 * np.pi
+        phiL = torch.rand([self.bpm.image_width, self.bpm.image_width, 1000], dtype=torch.float32, requires_grad=False,device=self.device) * 2 * np.pi
         self.bpm.phi_layers = phiL.unbind(dim=2)
 
         with torch.no_grad():
             Niter = 200
-            y_pred = torch.zeros((self.bpm.n_gammas + 1, self.bpm.Nz, self.bpm.image_width, self.bpm.image_width), device=DEVICE)
+            y_pred = torch.zeros((self.bpm.n_gammas + 1, self.bpm.Nz, self.bpm.image_width, self.bpm.image_width), device=self.device)
 
             for plane in range(0, self.bpm.Nz):
                 for w in range(0, Niter):
@@ -430,12 +427,12 @@ class ZernNet(nn.Module):
         self.bpm.dn0_layers = dn_est.unbind(dim=2) # * dn_norm
         self.bpm.fluo_layers = fluo_est.unbind(dim=2)
 
-        phiL = torch.rand([self.bpm.image_width, self.bpm.image_width, 1000], dtype=torch.float32, requires_grad=False,device=DEVICE) * 2 * np.pi
+        phiL = torch.rand([self.bpm.image_width, self.bpm.image_width, 1000], dtype=torch.float32, requires_grad=False,device=self.device) * 2 * np.pi
         self.bpm.phi_layers = phiL.unbind(dim=2)
 
         Niter = 200
         y_pred = torch.zeros((self.bpm.n_gammas + 1, self.bpm.Nz, self.bpm.image_width, self.bpm.image_width),
-                             device=DEVICE)
+                             device=self.device)
 
         # for plane in range(0, self.bpm.Nz):
 
@@ -469,7 +466,7 @@ class StaticNet(ZernNet):
                  static_phase=True, n_gammas=5, input_gammas_zernike=[], b_gamma_optimization=False,
                  num_polynomials_gammas=20,acquisition_data=[], optimize_phase_diversities_with_mlp=True,z_mode=30, bpm=[], device=[]):
         super().__init__(zernike, pupil, width, PSF_size, phs_layers=phs_layers, use_FFT=use_FFT, bsize=bsize,
-                         use_pe=use_pe, num_polynomials_gammas=num_polynomials_gammas, acquisition_data=acquisition_data, z_mode=z_mode, bpm=bpm)
+                         use_pe=use_pe, num_polynomials_gammas=num_polynomials_gammas, acquisition_data=acquisition_data, z_mode=z_mode, bpm=bpm, device=device)
         self.n_gammas = n_gammas
         self.pupil = pupil
         self.zernike = zernike
@@ -490,7 +487,7 @@ class StaticNet(ZernNet):
         self.static_phase = static_phase
 
         if len(input_gammas_zernike) > 0:
-            self.gammas_zernike = nn.Parameter(torch.tensor(input_gammas_zernike, device=DEVICE).float(),
+            self.gammas_zernike = nn.Parameter(torch.tensor(input_gammas_zernike, device=self.device).float(),
                                                requires_grad=b_gamma_optimization)
         else:
             self.gammas_zernike = []

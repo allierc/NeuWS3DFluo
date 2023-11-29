@@ -180,7 +180,7 @@ def data_train():
             plane = np.random.randint(bpm.Nz)
             pred, dn_est, fluo_est = net (plane, dn_norm=0)
 
-            loss_fluo_est_negative = -regul_0 * torch.relu(-fluo_est).norm(2) / Npixels
+            loss_fluo_est_negative = regul_0 * torch.relu(-fluo_est).norm(2) / Npixels
             loss_fluo_est_norm1 = regul_1 * fluo_est.norm(1) / Npixels
             loss_fluo_est_TV = regul_2 * TV(fluo_est)
             loss_dn_est_TV = regul_3 * TV(dn_est)
@@ -241,17 +241,16 @@ if __name__ == '__main__':
 
     config_list = ['config_recons_CElegans'] #, 'config_recons_CElegans_0','config_recons_CElegans_1','config_recons_CElegans_2'] #,'config_recons_CElegans_3','config_recons_CElegans_4','config_recons_CElegans_5','config_recons_CElegans_6','config_recons_CElegans_7','config_recons_CElegans_8'] #['config_grid', 'config_beads', 'config_beads_cropped','config_boats']
 
-    # regul_list = ["0", "5", "50"]
-    regul_list = ["10", "100", "1000"]
+    regul_list = ["0", "5", "50"]
 
-    for regul_1 in regul_list:
-        for regul_2 in regul_list:
-            for regul_3 in regul_list:
+    for regul_2 in regul_list:
+        for regul_3 in regul_list:
+            for regul_4 in regul_list:
 
                 for config in config_list:
 
                     print (f'run :{config}')
-                    print(regul_1, regul_2, regul_3)
+                    print(regul_2, regul_3, regul_4)
 
                     # Create log directory
                     l_dir = os.path.join('.', 'log', config)
@@ -264,9 +263,9 @@ if __name__ == '__main__':
                     with open(f'./config/{config}.yaml', 'r') as file:
                         model_config = yaml.safe_load(file)
 
-                    model_config['regul_1'] = regul_1
                     model_config['regul_2'] = regul_2
                     model_config['regul_3'] = regul_3
+                    model_config['regul_4'] = regul_4
 
                     torch.cuda.empty_cache()
                     bpm = bpmPytorch(model_config, device=device)      # just to get the pupil function
