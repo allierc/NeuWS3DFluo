@@ -87,14 +87,25 @@ def data_generate():
     end = timer()
     print(f'elapsed time : {np.round(end - start, 2)}')
 
-    for k in range(bpm.n_gammas + 1):
-        imwrite(f'./{log_dir}/stack_{k}.tif', y_batches[k].detach().cpu().numpy().squeeze())
-
     torch.save(y_batches, f'./{log_dir}/y_batches.pt')
+    y_norm = torch.std(y_batches)
+    dn_norm=torch.std(bpm.dn0)
+    torch.save(y_norm, f'./{log_dir}/y_norm.pt')
+    torch.save(dn_norm, f'./{log_dir}/dn_norm.pt')
+
+    for k in range(bpm.n_gammas + 1):
+        imwrite(f'./{log_dir}/stack_{k}.tif', (y_batches[k]/y_norm).detach().cpu().numpy().squeeze())
+
 
 def data_train():
 
     y_batches = torch.load(model_config['input_fluo_simulated_acquisition'], map_location=device)
+    f=model_config['input_fluo_simulated_acquisition']
+    filename=f'{f[:-12]}/y_norm.pt'
+    y_norm = torch.load(filename, map_location=device)
+    y_batches = y_batches / y_norm
+    filename=f'{f[:-12]}/dn_norm.pt'
+    dn_norm = torch.load(filename, map_location=device)
 
     net = StaticNet(zernike=zernike_instance,
                     pupil=pupil,
@@ -129,51 +140,39 @@ def data_train():
     loss2_list = []  # Iest - acquisition
     loss3_list = []  # I_gt - acquisition
 
+
     for epoch in range(model_config['num_epochs']):
 
         optimizer_fluo_3D.zero_grad();
-        optimizer_dn_3D.zero_grad();
+        # optimizer_dn_3D.zero_grad();
 
         plane = np.random.randint(bpm.Nz)
 
-        pred, dn_est, fluo_est = net(plane)
+        pred, dn_est, fluo_est = net (plane, dn_norm=0)
 
-        loss_image_negative = 1E4*torch.relu(-fluo_est).norm(2)
+        # loss_image_negative = 1E4*torch.relu(-fluo_est).norm(2)
 
-        loss = F.mse_loss(pred[:,plane], y_batches[:,plane]) + loss_image_negative + TV(fluo_est).norm(2) * 5E3
+        loss = F.mse_loss(pred[:,plane], y_batches[:,plane])
 
         loss.backward()
 
         optimizer_fluo_3D.step()
-        if epoch>1000:
-            optimizer_dn_3D.step()
+        # optimizer_dn_3D.step()
 
-        print (f'epoch: {epoch} loss: {np.round(loss.item()/1E6,2)}')
+        print (f'epoch: {epoch} loss: {np.round(loss.item(),6)}')
 
-        if epoch%100==0:
+        if epoch%10==0:
 
             # torch.save(pred, f'./{log_dir}/pred_{epoch}.pt')
             # torch.save(dn_est, f'./{log_dir}/dn_est{epoch}.pt')
             # torch.save(fluo_est, f'./{log_dir}/fluo_est{epoch}.pt')
-            imwrite(f'./{log_dir}/pred_{epoch}.tif', y_batches[0,29].detach().cpu().numpy().squeeze())
+            imwrite(f'./{log_dir}/pred_{epoch}.tif', pred[:,plane].detach().cpu().numpy().squeeze())
             fluo_est = torch.moveaxis(fluo_est, 0, -1)
             fluo_est = torch.moveaxis(fluo_est, 0, -1)
             dn_est = torch.moveaxis(dn_est, 0, -1)
             dn_est = torch.moveaxis(dn_est, 0, -1)
-            imwrite(f'./{log_dir}/dn_est_{epoch}.tif', dn_est.detach().cpu().numpy().squeeze())
+            # imwrite(f'./{log_dir}/dn_est_{epoch}.tif', dn_est.detach().cpu().numpy().squeeze())
             imwrite(f'./{log_dir}/fluo_est_{epoch}.tif', fluo_est.detach().cpu().numpy().squeeze())
-
-
-
-
-
-
-
-
-
-
-
-
 
 if __name__ == '__main__':
 
@@ -192,7 +191,7 @@ if __name__ == '__main__':
     print(f'num_polynomials: {num_polynomials}')
     print(f'Niter: {Niter}')
 
-    config_list = ['config_recons_from_beads'] #['config_grid', 'config_beads', 'config_beads_cropped','config_boats']
+    config_list = ['config_recons_CElegans'] #['config_grid', 'config_beads', 'config_beads_cropped','config_boats']
 
     for config in config_list:
 
@@ -249,7 +248,7 @@ if __name__ == '__main__':
 
         else:
 
-            data_generate ()
+            data_generate()
 
 
 

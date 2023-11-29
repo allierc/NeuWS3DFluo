@@ -371,7 +371,7 @@ class ZernNet(nn.Module):
         print(f'Using FFT approximation of convolution: {self.use_FFT}')
         self.static_phase = static_phase
 
-    def forward(self, plane):
+    def forward(self, plane,dn_norm=1):
 
         z_= torch.linspace(0, 30, steps=30,device=DEVICE)
 
@@ -388,7 +388,7 @@ class ZernNet(nn.Module):
         self.bpm.dn0_layers = dn_est.unbind(dim=2)
         self.bpm.fluo_layers = fluo_est.unbind(dim=2)
 
-        self.bpm.dn0 = dn_est
+        self.bpm.dn0 = dn_est * dn_norm
         self.bpm.fluo = fluo_est
 
         phiL = torch.rand([self.bpm.image_width, self.bpm.image_width, 1000], dtype=torch.float32, requires_grad=False,device=DEVICE) * 2 * np.pi
