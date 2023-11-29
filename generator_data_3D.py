@@ -127,9 +127,7 @@ def data_train():
 
     net = net.to(DEVICE)
 
-    # Create optimizer
-    optimizer_fluo_3D = torch.optim.Adam(net.g_fluo_3D.parameters(), lr=model_config['init_lr'])  # Object optimizer
-    optimizer_dn_3D = torch.optim.Adam(net.g_dn_3D.parameters(), lr=model_config['init_lr'])
+
 
     ### Training loop
 
@@ -144,34 +142,66 @@ def data_train():
 
     Npixels = torch.tensor(bpm.Npixels,device=device)
 
+    # Initialisation fluo_est  ##################################################
+
+    optimizer_fluo_3D = torch.optim.Adam(net.g_fluo_3D.parameters(), lr=0.01)  # Object optimizer
+    optimizer_dn_3D = torch.optim.Adam(net.g_dn_3D.parameters(), lr=0.01)
+    for epoch in range(-100,0):
+
+        optimizer_fluo_3D.zero_grad();
+        loss = 0
+        for batch in range(8):
+            fluo_est = net.init_fluo()
+            loss += F.mse_loss(fluo_est, y_batches[0])
+        loss.backward()
+        optimizer_fluo_3D.step()
+        loss0_list.append(loss.item()/model_config['batch_size'])
+
+        if epoch % 20 == 0:
+            print (f'epoch: {epoch} loss: {np.round(loss.item(),6)}')
+        if epoch % 20 == 0:
+            imwrite(f'./{log_dir}/fluo_est_{epoch}.tif', fluo_est.detach().cpu().numpy().squeeze())
+
+    y_pred = net.forward_volume()
+    for k in range(bpm.n_gammas + 1):
+        imwrite(f'./{log_dir}/stack_{k}.tif', (y_pred[k]).detach().cpu().numpy().squeeze())
+
+    optimizer_fluo_3D = torch.optim.Adam(net.g_fluo_3D.parameters(), lr=model_config['init_lr'])  # Object optimizer
+    optimizer_dn_3D = torch.optim.Adam(net.g_dn_3D.parameters(), lr=model_config['init_lr'])
     for epoch in range(model_config['num_epochs']):
 
         optimizer_fluo_3D.zero_grad();
-        # optimizer_dn_3D.zero_grad();
+        optimizer_dn_3D.zero_grad();
 
         loss = 0
 
         for batch in range(model_config['batch_size']):
             plane = np.random.randint(bpm.Nz)
-            # pred, dn_est, fluo_est = net (plane, dn_norm=0, bModel=True)
-            fluo_est = net.init_fluo()
+            pred, dn_est, fluo_est = net (plane, dn_norm=0)
 
             loss_fluo_est_negative = torch.relu(-fluo_est).norm(2) / Npixels
             loss_fluo_est_norm1 = fluo_est.norm(1) / Npixels
             loss_fluo_est_TV = TV(fluo_est)
 
-            loss += F.mse_loss(fluo_est, y_batches[0]) + regul_0 * loss_fluo_est_negative + regul_1 * loss_fluo_est_norm1 + regul_2 * loss_fluo_est_TV
-
-            # loss += F.mse_loss(pred[:,plane], y_batches[:,plane]) + regul_0 * loss_fluo_est_negative + regul_1 * loss_fluo_est_norm1 + regul_2 * loss_fluo_est_TV
+            loss += F.mse_loss(pred[:,plane], y_batches[:,plane]) + regul_0 * loss_fluo_est_negative + regul_1 * loss_fluo_est_norm1 + regul_2 * loss_fluo_est_TV
 
         loss.backward()
         optimizer_fluo_3D.step()
-        # optimizer_dn_3D.step()
+        optimizer_dn_3D.step()
 
-        loss0_list.append(loss.item()/model_config['batch_size'])
+        loss0_list.append(loss.item() / model_config['batch_size'])
 
-        if epoch % 10 == 0:
-            print (f'epoch: {epoch} loss: {np.round(loss.item(),6)}')
+        if epoch % 20 == 0:
+            print(f'epoch: {epoch} loss: {np.round(loss.item(), 6)}')
+        if epoch % 20 == 0:
+            fluo_est = torch.moveaxis(fluo_est, 0, -1)
+            fluo_est = torch.moveaxis(fluo_est, 0, -1)
+            imwrite(f'./{log_dir}/fluo_est_{epoch}.tif', fluo_est.detach().cpu().numpy().squeeze())
+            dn_est = torch.moveaxis(dn_est, 0, -1)
+            dn_est = torch.moveaxis(dn_est, 0, -1)
+            imwrite(f'./{log_dir}/dn_est_{epoch}.tif', dn_est.detach().cpu().numpy().squeeze())
+
+
 
     # torch.save(pred, f'./{log_dir}/pred_{epoch}.pt')
     # torch.save(dn_est, f'./{log_dir}/dn_est{epoch}.pt')
@@ -183,8 +213,7 @@ def data_train():
     # dn_est = torch.moveaxis(dn_est, 0, -1)
     # imwrite(f'./{log_dir}/dn_est_{epoch}.tif', dn_est.detach().cpu().numpy().squeeze())
 
-        if epoch % 100 == 0:
-            imwrite(f'./{log_dir}/fluo_est_{epoch}.tif', fluo_est.detach().cpu().numpy().squeeze())
+
 
     fig = plt.figure(figsize=(8, 8))
     plt.plot(loss0_list)
