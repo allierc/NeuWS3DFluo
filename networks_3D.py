@@ -373,7 +373,7 @@ class ZernNet(nn.Module):
 
     def init_fluo (self):
 
-        z_= torch.linspace(0, 30, steps=30,device=DEVICE)
+        z_= torch.linspace(0, 30, steps=30,device=self.device)
 
         fluo_est = self.g_fluo_3D(z_)
         fluo_est = fluo_est.squeeze()
@@ -382,7 +382,7 @@ class ZernNet(nn.Module):
 
     def forward_volume(self):
 
-        z_ = torch.linspace(0, 30, steps=30, device=DEVICE)
+        z_ = torch.linspace(0, 30, steps=30, device=self.device)
 
         fluo_est = self.g_fluo_3D(z_)
         fluo_est = fluo_est.squeeze()
@@ -417,7 +417,7 @@ class ZernNet(nn.Module):
 
     def forward(self, plane,dn_norm=1):
 
-        z_= torch.linspace(0, 30, steps=30,device=DEVICE)
+        z_= torch.linspace(0, 30, steps=30,device=self.device)
 
         fluo_est = self.g_fluo_3D(z_)
         fluo_est = fluo_est.squeeze()
@@ -427,7 +427,7 @@ class ZernNet(nn.Module):
         dn_est = dn_est.squeeze()
         dn_est = torch.moveaxis(dn_est, 0, -1)
 
-        self.bpm.dn0_layers = dn_est.unbind(dim=2) * dn_norm
+        self.bpm.dn0_layers = dn_est.unbind(dim=2) # * dn_norm
         self.bpm.fluo_layers = fluo_est.unbind(dim=2)
 
         phiL = torch.rand([self.bpm.image_width, self.bpm.image_width, 1000], dtype=torch.float32, requires_grad=False,device=DEVICE) * 2 * np.pi
@@ -467,7 +467,7 @@ class StaticNet(ZernNet):
 
     def __init__(self, zernike, pupil, width, PSF_size, phs_layers=2, use_FFT=True, bsize=8, use_pe=False,
                  static_phase=True, n_gammas=5, input_gammas_zernike=[], b_gamma_optimization=False,
-                 num_polynomials_gammas=20,acquisition_data=[], optimize_phase_diversities_with_mlp=True,z_mode=30, bpm=[]):
+                 num_polynomials_gammas=20,acquisition_data=[], optimize_phase_diversities_with_mlp=True,z_mode=30, bpm=[], device=[]):
         super().__init__(zernike, pupil, width, PSF_size, phs_layers=phs_layers, use_FFT=use_FFT, bsize=bsize,
                          use_pe=use_pe, num_polynomials_gammas=num_polynomials_gammas, acquisition_data=acquisition_data, z_mode=z_mode, bpm=bpm)
         self.n_gammas = n_gammas
@@ -476,6 +476,7 @@ class StaticNet(ZernNet):
         self.bfp_size = PSF_size
         self.acquisition_data=acquisition_data
         self.optimize_phase_diversities_with_mlp = optimize_phase_diversities_with_mlp
+        self.device = device
 
         hidden_dim = 32
         in_dim = self.basis.shape[-1]

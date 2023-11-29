@@ -123,7 +123,8 @@ def data_train():
                     acquisition_data=[],
                     optimize_phase_diversities_with_mlp=False,
                     z_mode=bpm.Nz,
-                    bpm=bpm)
+                    bpm=bpm,
+                    device=device)
 
     net = net.to(DEVICE)
 
@@ -179,11 +180,12 @@ def data_train():
             plane = np.random.randint(bpm.Nz)
             pred, dn_est, fluo_est = net (plane, dn_norm=0)
 
-            loss_fluo_est_negative = torch.relu(-fluo_est).norm(2) / Npixels
-            loss_fluo_est_norm1 = fluo_est.norm(1) / Npixels
-            loss_fluo_est_TV = TV(fluo_est)
+            loss_fluo_est_negative = regul_0 * torch.relu(-fluo_est).norm(2) / Npixels
+            loss_fluo_est_norm1 = regul_1 * fluo_est.norm(1) / Npixels
+            loss_fluo_est_TV = regul_2 * TV(fluo_est)
+            loss_dn_est_TV = regul_3 * TV(dn_est)
 
-            loss += F.mse_loss(pred[:,plane], y_batches[:,plane]) + regul_0 * loss_fluo_est_negative + regul_1 * loss_fluo_est_norm1 + regul_2 * loss_fluo_est_TV
+            loss += F.mse_loss(pred[:,plane], y_batches[:,plane]) + loss_fluo_est_negative + loss_fluo_est_norm1 + loss_fluo_est_TV + loss_dn_est_TV
 
         loss.backward()
         optimizer_fluo_3D.step()
@@ -193,7 +195,7 @@ def data_train():
 
         if epoch % 20 == 0:
             print(f'epoch: {epoch} loss: {np.round(loss.item(), 6)}')
-        if epoch % 20 == 0:
+        if epoch % 200 == 0:
             fluo_est = torch.moveaxis(fluo_est, 0, -1)
             fluo_est = torch.moveaxis(fluo_est, 0, -1)
             imwrite(f'./{log_dir}/fluo_est_{epoch}.tif', fluo_est.detach().cpu().numpy().squeeze())
@@ -224,7 +226,7 @@ if __name__ == '__main__':
 
     print('Init ...')
 
-    DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    DEVICE = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     device = DEVICE
 
     print(f'device: {device}')
@@ -237,7 +239,7 @@ if __name__ == '__main__':
     print(f'num_polynomials: {num_polynomials}')
     print(f'Niter: {Niter}')
 
-    config_list = ['config_recons_CElegans']  # ['config_recons_CElegans', 'config_recons_CElegans_0','config_recons_CElegans_1','config_recons_CElegans_2','config_recons_CElegans_3','config_recons_CElegans_4','config_recons_CElegans_5','config_recons_CElegans_6','config_recons_CElegans_7','config_recons_CElegans_8'] #['config_grid', 'config_beads', 'config_beads_cropped','config_boats']
+    config_list = ['config_recons_CElegans', 'config_recons_CElegans_0','config_recons_CElegans_1','config_recons_CElegans_2'] #,'config_recons_CElegans_3','config_recons_CElegans_4','config_recons_CElegans_5','config_recons_CElegans_6','config_recons_CElegans_7','config_recons_CElegans_8'] #['config_grid', 'config_beads', 'config_beads_cropped','config_boats']
 
     for config in config_list:
 
