@@ -140,28 +140,35 @@ def data_train():
     loss2_list = []  # Iest - acquisition
     loss3_list = []  # I_gt - acquisition
 
+    regul_0, regul_1, regul_2, regul_3, regul_4, regul_5 = [torch.tensor(float(model_config[f'regul_{i}']),device=device) for i in range(6)]
+
+    Npixels = torch.tensor(bpm.Npixels,device=device)
 
     for epoch in range(model_config['num_epochs']):
 
         optimizer_fluo_3D.zero_grad();
         # optimizer_dn_3D.zero_grad();
 
-        plane = np.random.randint(bpm.Nz)
+        loss = 0
 
-        pred, dn_est, fluo_est = net (plane, dn_norm=0)
+        for batch in range(model_config['batch_size']):
+            plane = np.random.randint(bpm.Nz)
+            pred, dn_est, fluo_est = net (plane, dn_norm=0)
 
-        # loss_image_negative = 1E4*torch.relu(-fluo_est).norm(2)
-
-        loss = F.mse_loss(pred[:,plane], y_batches[:,plane])
+            loss_fluo_est_negative = torch.relu(-fluo_est).norm(2) / Npixels
+            loss_fluo_est_norm1 = fluo_est.norm(1) / Npixels
+            loss_fluo_est_TV = TV(fluo_est)
+            loss += F.mse_loss(pred[:,plane], y_batches[:,plane]) + regul_0 * loss_fluo_est_negative + regul_1 * loss_fluo_est_norm1 + regul_2 * loss_fluo_est_TV
 
         loss.backward()
-
         optimizer_fluo_3D.step()
         # optimizer_dn_3D.step()
 
+        loss0_list.append(loss.item()/model_config['batch_size'])
+
         print (f'epoch: {epoch} loss: {np.round(loss.item(),6)}')
 
-        if epoch%10==0:
+        if epoch%100==0:
 
             # torch.save(pred, f'./{log_dir}/pred_{epoch}.pt')
             # torch.save(dn_est, f'./{log_dir}/dn_est{epoch}.pt')
@@ -173,6 +180,11 @@ def data_train():
             dn_est = torch.moveaxis(dn_est, 0, -1)
             # imwrite(f'./{log_dir}/dn_est_{epoch}.tif', dn_est.detach().cpu().numpy().squeeze())
             imwrite(f'./{log_dir}/fluo_est_{epoch}.tif', fluo_est.detach().cpu().numpy().squeeze())
+
+    fig = plt.figure(figsize=(8, 8))
+    plt.plot(loss0_list)
+    plt.savefig(f"./{log_dir}/Loss.tif")
+    plt.close()
 
 if __name__ == '__main__':
 
@@ -191,7 +203,7 @@ if __name__ == '__main__':
     print(f'num_polynomials: {num_polynomials}')
     print(f'Niter: {Niter}')
 
-    config_list = ['config_recons_CElegans'] #['config_grid', 'config_beads', 'config_beads_cropped','config_boats']
+    config_list = ['config_recons_CElegans', 'config_recons_CElegans_0','config_recons_CElegans_1','config_recons_CElegans_2','config_recons_CElegans_3','config_recons_CElegans_4','config_recons_CElegans_5','config_recons_CElegans_6','config_recons_CElegans_7','config_recons_CElegans_8'] #['config_grid', 'config_beads', 'config_beads_cropped','config_boats']
 
     for config in config_list:
 
@@ -203,6 +215,7 @@ if __name__ == '__main__':
         print('log_dir: {}'.format(log_dir))
         os.makedirs(log_dir, exist_ok=True)
         copyfile(os.path.realpath(__file__), os.path.join(log_dir, 'generating_code.py'))
+        copyfile(f'./config/{config}.yaml', os.path.join(log_dir, 'config.yaml'))
 
         with open(f'./config/{config}.yaml', 'r') as file:
             model_config = yaml.safe_load(file)
