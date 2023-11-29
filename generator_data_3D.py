@@ -153,12 +153,16 @@ def data_train():
 
         for batch in range(model_config['batch_size']):
             plane = np.random.randint(bpm.Nz)
-            pred, dn_est, fluo_est = net (plane, dn_norm=0)
+            # pred, dn_est, fluo_est = net (plane, dn_norm=0, bModel=True)
+            fluo_est = net.init_fluo()
 
             loss_fluo_est_negative = torch.relu(-fluo_est).norm(2) / Npixels
             loss_fluo_est_norm1 = fluo_est.norm(1) / Npixels
             loss_fluo_est_TV = TV(fluo_est)
-            loss += F.mse_loss(pred[:,plane], y_batches[:,plane]) + regul_0 * loss_fluo_est_negative + regul_1 * loss_fluo_est_norm1 + regul_2 * loss_fluo_est_TV
+
+            loss += F.mse_loss(fluo_est, y_batches[0]) + regul_0 * loss_fluo_est_negative + regul_1 * loss_fluo_est_norm1 + regul_2 * loss_fluo_est_TV
+
+            # loss += F.mse_loss(pred[:,plane], y_batches[:,plane]) + regul_0 * loss_fluo_est_negative + regul_1 * loss_fluo_est_norm1 + regul_2 * loss_fluo_est_TV
 
         loss.backward()
         optimizer_fluo_3D.step()
@@ -166,19 +170,20 @@ def data_train():
 
         loss0_list.append(loss.item()/model_config['batch_size'])
 
-        print (f'epoch: {epoch} loss: {np.round(loss.item(),6)}')
+        if epoch % 10 == 0:
+            print (f'epoch: {epoch} loss: {np.round(loss.item(),6)}')
 
-        if epoch%100==0:
+    # torch.save(pred, f'./{log_dir}/pred_{epoch}.pt')
+    # torch.save(dn_est, f'./{log_dir}/dn_est{epoch}.pt')
+    # torch.save(fluo_est, f'./{log_dir}/fluo_est{epoch}.pt')
+    # imwrite(f'./{log_dir}/pred_{epoch}.tif', pred[:,plane].detach().cpu().numpy().squeeze())
+    # fluo_est = torch.moveaxis(fluo_est, 0, -1)
+    # fluo_est = torch.moveaxis(fluo_est, 0, -1)
+    # dn_est = torch.moveaxis(dn_est, 0, -1)
+    # dn_est = torch.moveaxis(dn_est, 0, -1)
+    # imwrite(f'./{log_dir}/dn_est_{epoch}.tif', dn_est.detach().cpu().numpy().squeeze())
 
-            # torch.save(pred, f'./{log_dir}/pred_{epoch}.pt')
-            # torch.save(dn_est, f'./{log_dir}/dn_est{epoch}.pt')
-            # torch.save(fluo_est, f'./{log_dir}/fluo_est{epoch}.pt')
-            imwrite(f'./{log_dir}/pred_{epoch}.tif', pred[:,plane].detach().cpu().numpy().squeeze())
-            fluo_est = torch.moveaxis(fluo_est, 0, -1)
-            fluo_est = torch.moveaxis(fluo_est, 0, -1)
-            dn_est = torch.moveaxis(dn_est, 0, -1)
-            dn_est = torch.moveaxis(dn_est, 0, -1)
-            # imwrite(f'./{log_dir}/dn_est_{epoch}.tif', dn_est.detach().cpu().numpy().squeeze())
+        if epoch % 100 == 0:
             imwrite(f'./{log_dir}/fluo_est_{epoch}.tif', fluo_est.detach().cpu().numpy().squeeze())
 
     fig = plt.figure(figsize=(8, 8))
@@ -203,7 +208,7 @@ if __name__ == '__main__':
     print(f'num_polynomials: {num_polynomials}')
     print(f'Niter: {Niter}')
 
-    config_list = ['config_recons_CElegans', 'config_recons_CElegans_0','config_recons_CElegans_1','config_recons_CElegans_2','config_recons_CElegans_3','config_recons_CElegans_4','config_recons_CElegans_5','config_recons_CElegans_6','config_recons_CElegans_7','config_recons_CElegans_8'] #['config_grid', 'config_beads', 'config_beads_cropped','config_boats']
+    config_list = ['config_recons_CElegans']  # ['config_recons_CElegans', 'config_recons_CElegans_0','config_recons_CElegans_1','config_recons_CElegans_2','config_recons_CElegans_3','config_recons_CElegans_4','config_recons_CElegans_5','config_recons_CElegans_6','config_recons_CElegans_7','config_recons_CElegans_8'] #['config_grid', 'config_beads', 'config_beads_cropped','config_boats']
 
     for config in config_list:
 

@@ -371,6 +371,16 @@ class ZernNet(nn.Module):
         print(f'Using FFT approximation of convolution: {self.use_FFT}')
         self.static_phase = static_phase
 
+    def init_fluo (self):
+
+        z_= torch.linspace(0, 30, steps=30,device=DEVICE)
+
+        fluo_est = self.g_fluo_3D(z_)
+        fluo_est = fluo_est.squeeze()
+
+        return fluo_est
+
+
     def forward(self, plane,dn_norm=1):
 
         z_= torch.linspace(0, 30, steps=30,device=DEVICE)
