@@ -134,10 +134,6 @@ def data_train():
 
     total_it = 0
 
-    loss_list = []
-    loss1_list = []  # Iest - I_gt
-    loss2_list = []  # Iest - acquisition
-    loss3_list = []  # I_gt - acquisition
 
     regul_0, regul_1, regul_2, regul_3, regul_4, regul_5 = [torch.tensor(float(model_config[f'regul_{i}']),device=device) for i in range(6)]
 
@@ -156,7 +152,6 @@ def data_train():
             loss += F.mse_loss(fluo_est, y_batches[0])
         loss.backward()
         optimizer_fluo_3D.step()
-        loss0_list.append(loss.item()/model_config['batch_size'])
 
         if epoch % 20 == 0:
             print (f'epoch: {epoch} loss: {np.round(loss.item(),6)}')
@@ -165,13 +160,68 @@ def data_train():
 
     y_pred = net.forward_volume()
     for k in range(bpm.n_gammas + 1):
-        imwrite(f'./{log_dir}/stack_{k}.tif', (y_pred[k]).detach().cpu().numpy().squeeze())
+        imwrite(f'./{log_dir}/stack_init_{k}.tif', (y_pred[k]).detach().cpu().numpy().squeeze())
 
-    optimizer_fluo_3D = torch.optim.Adam(net.g_fluo_3D.parameters(), lr=model_config['init_lr'])  # Object optimizer
+    optimizer_fluo_3D = torch.optim.Adam(net.g_fluo_3D.parameters(), lr=0.005)
+    optimizer_phase = torch.optim.Adam(net.g_g.parameters(), lr=0.005)  # Phase aberration optimizer (Zernike + MLP)
+    loss_list = []
+    loss1_list = []  # Iest - I_gt
+    loss2_list = []  # Iest - acquisition
+    loss3_list = []  # I_gt - acquisition
+
+    fig = plt.figure(figsize=(8, 8))
+    plt.ion()
+    plt.imshow(fluo_est[plane].detach().cpu().numpy())
+
+    for epoch in range(50):
+
+        for plane in range(bpm.Nz):
+
+            optimizer_fluo_3D.zero_grad()
+            optimizer_phase.zero_grad()
+
+            loss=0
+
+            for batch in range(model_config['batch_size']):
+                acquisition_est, fluo_est, phase_aberration_est = net.optimization_aberration(plane=plane)
+                loss_phase_est = torch.relu((torch.abs(phase_aberration_est) - 8 * np.pi)).norm(2)
+                loss_image_negative = torch.relu(-fluo_est[0]).norm(2)
+                loss_fluo_est_TV = TV(fluo_est)
+                loss += F.mse_loss(acquisition_est, y_batches[:,plane]) + loss_phase_est + 1E4*loss_image_negative + loss_fluo_est_TV / 500
+
+            loss_list.append(loss.item() / model_config['batch_size'])
+
+            loss.backward()
+            optimizer_fluo_3D.step()
+            optimizer_phase.step()
+
+            print(f'epoch: {epoch} loss: {np.round(loss.item(), 6)}')
+
+            if epoch%10 == 0:
+                imwrite(f'./{log_dir}/viz/fluo_est_{epoch}.tif', fluo_est[0].detach().cpu().numpy().squeeze())
+                imwrite(f'./{log_dir}/viz/phase_aberration_est_{epoch}.tif', phase_aberration_est[0].detach().cpu().numpy().squeeze())
+
+    y_pred = net.forward_volume()
+    for k in range(bpm.n_gammas + 1):
+        imwrite(f'./{log_dir}/stack_phase_diversity_{k}.tif', (y_pred[k]).detach().cpu().numpy().squeeze())
+
+    fig = plt.figure(figsize=(8, 8))
+    plt.ion()
+    plt.yscale("log")
+    plt.plot(loss_list)
+    plt.savefig(f"./{log_dir}/Loss_phase_diversity.tif")
+    plt.close()
+
+
+    # optimizer_fluo_3D = torch.optim.Adam(net.g_fluo_3D.parameters(), lr=model_config['init_lr'])  # Object optimizer
     optimizer_dn_3D = torch.optim.Adam(net.g_dn_3D.parameters(), lr=model_config['init_lr'])
+    loss_list = []
+    loss1_list = []  # Iest - I_gt
+    loss2_list = []  # Iest - acquisition
+    loss3_list = []  # I_gt - acquisition
     for epoch in range(model_config['num_epochs']):
 
-        optimizer_fluo_3D.zero_grad();
+        # optimizer_fluo_3D.zero_grad();
         optimizer_dn_3D.zero_grad();
 
         loss = 0
@@ -180,15 +230,16 @@ def data_train():
             plane = np.random.randint(bpm.Nz)
             pred, dn_est, fluo_est = net (plane, dn_norm=0)
 
-            loss_fluo_est_negative = regul_0 * torch.relu(-fluo_est).norm(2) / Npixels
-            loss_fluo_est_var = -regul_1 * torch.std(fluo_est)**2
-            loss_fluo_est_TV = regul_2 * TV(fluo_est)
-            loss_dn_est_TV = regul_3 * TV(dn_est)
+            # loss_fluo_est_negative = regul_0 * torch.relu(-fluo_est).norm(2) / Npixels
+            # loss_fluo_est_var = -regul_1 * torch.std(fluo_est)**2
+            # loss_fluo_est_TV = regul_2 * TV(fluo_est)
+            # loss_dn_est_TV = regul_3 * TV(dn_est)
 
-            loss += F.mse_loss(pred[:,plane], y_batches[:,plane]) + loss_fluo_est_negative + loss_fluo_est_var + loss_fluo_est_TV + loss_dn_est_TV
+            loss += F.mse_loss(pred[:,plane], y_batches[:,plane]) + 1E4 * TV(dn_est) # + loss_fluo_est_negative + loss_fluo_est_var + loss_fluo_est_TV +
 
         loss.backward()
-        optimizer_fluo_3D.step()
+
+        # optimizer_fluo_3D.step()
         optimizer_dn_3D.step()
 
         loss_list.append(loss.item() / model_config['batch_size'])
@@ -220,18 +271,22 @@ def data_train():
 
 
     fig = plt.figure(figsize=(8, 8))
+    plt.yscale("log")
     plt.plot(loss_list)
     plt.savefig(f"./{log_dir}/Loss.tif")
     plt.close()
     fig = plt.figure(figsize=(8, 8))
+    plt.yscale("log")
     plt.plot(loss1_list)
     plt.savefig(f"./{log_dir}/Loss1.tif")
     plt.close()
     fig = plt.figure(figsize=(8, 8))
+    plt.yscale("log")
     plt.plot(loss2_list)
     plt.savefig(f"./{log_dir}/Loss2.tif")
     plt.close()
     fig = plt.figure(figsize=(8, 8))
+    plt.yscale("log")
     plt.plot(loss3_list)
     plt.savefig(f"./{log_dir}/Loss3.tif")
     plt.close()
@@ -241,7 +296,7 @@ if __name__ == '__main__':
 
     print('Init ...')
 
-    DEVICE = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     device = DEVICE
 
     print(f'device: {device}')
@@ -263,13 +318,14 @@ if __name__ == '__main__':
                 for config in config_list:
 
                     print (f'run :{config}')
-                    print(regul_1, regul_2, regul_3)
+                    print(regul_)
 
                     # Create log directory
                     l_dir = os.path.join('.', 'log', config)
                     log_dir = os.path.join(l_dir, datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
                     print('log_dir: {}'.format(log_dir))
                     os.makedirs(log_dir, exist_ok=True)
+                    os.makedirs(os.path.join(log_dir, 'viz'), exist_ok=True)
                     copyfile(os.path.realpath(__file__), os.path.join(log_dir, 'generating_code.py'))
                     copyfile(f'./config/{config}.yaml', os.path.join(log_dir, 'config.yaml'))
 

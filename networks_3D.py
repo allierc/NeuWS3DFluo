@@ -347,26 +347,28 @@ class MLP(nn.Module):
 
 
 class ZernNet(nn.Module):
-    def __init__(self, zernike, pupil, width, PSF_size, phs_layers=2, use_FFT=True, bsize=8, use_pe=False, num_polynomials_gammas=20, static_phase=True, acquisition_data=[],z_mode = 30, bpm=[], device=[]):
+    def __init__(self, zernike, pupil, width, PSF_size, phs_layers=2, use_FFT=True, bsize=8, use_pe=False, num_polynomials_gammas=20, static_phase=True, acquisition_data=[],z_mode = 30, bpm=[], device=[], n_gammas=[]):
         super().__init__()
 
         self.device = device
         self.bpm = bpm
 
-        self.g_fluo_3D = G_Model3D(w=width,h=width,num_feats=16, x_mode=width,y_mode=width,z_mode=z_mode,z_min=0,z_max=z_mode)
-        self.g_dn_3D = G_Model3D(w=width, h=width, num_feats=16, x_mode=width, y_mode=width, z_mode=z_mode, z_min=0,z_max=z_mode)
+        self.g_fluo_3D = G_Model3D(w=width,h=width,num_feats=32, x_mode=width,y_mode=width,z_mode=z_mode,z_min=0,z_max=z_mode)
+        self.g_dn_3D = G_Model3D(w=width, h=width, num_feats=32, x_mode=width, y_mode=width, z_mode=z_mode, z_min=0,z_max=z_mode)
 
         zernike_basis = zernike.calculate_polynomials(np.arange(3, 3 + num_polynomials_gammas))
         zernike_basis = torch.FloatTensor(zernike_basis).to(self.device)
-        self.basis = nn.Parameter(zernike_basis.unsqueeze(0).repeat(bsize, 1, 1, 1), requires_grad=False)
+        self.basis = nn.Parameter(zernike_basis.unsqueeze(0).repeat(n_gammas+1, 1, 1, 1), requires_grad=False)
 
         hidden_dim = 32
         t_dim = 0  # 0 in static case # TODO: remove t_dim
         in_dim = self.basis.shape[-1]
+
         self.t_grid = nn.Parameter(torch.ones_like(self.basis[..., 0:1]), requires_grad=False)
         self.use_FFT = use_FFT
-        print(f'Using FFT approximation of convolution: {self.use_FFT}')
         self.static_phase = static_phase
+
+        self.g_g = MLP(in_dim=in_dim, hidden_dim=hidden_dim, num_layers=phs_layers)  # phase aberrations
 
     def init_fluo (self):
 
@@ -410,6 +412,37 @@ class ZernNet(nn.Module):
                 y_pred[:, plane:plane + 1, :, :] = I[:, None, :, :]
 
         return y_pred
+
+    def optimization_aberration (self, plane):
+
+        g_in = self.basis
+        g_out_phi = self.g_g(g_in)  # Neural representation of aberration from Zernike basis  dim 6 256 256 all identical
+        g_out_phi = g_out_phi.permute(0, 3, 1, 2)
+        phase_aberration_est = g_out_phi[:, 1:2] * self.pupil.values
+        phase_aberration_est = phase_aberration_est.squeeze()
+
+
+        z_= torch.linspace(0, 30, steps=30,device=self.device)
+
+        fluo_est = self.g_fluo_3D(z_)
+        fluo_est = fluo_est.squeeze()
+        fluo_est = fluo_est[plane].repeat(self.n_gammas+1, 1, 1)
+
+
+        pupil_function = self.pupil.values * (torch.exp(1j * phase_aberration_est) + ifftshift(self.bpm.gammas))
+        prf = fftshift(ifft2(ifftshift(pupil_function, dim=(1, 2))), dim=(1, 2))
+        PSF = torch.abs(prf) ** 2
+        PSF = PSF.float()
+        PSF = PSF / torch.sum(PSF, dim=(1, 2), keepdim=True)
+        OTF = fft2(ifftshift(PSF, dim=(1, 2)))
+        object_ft = fft2(fluo_est, dim=(1, 2))
+        image_fourier_space = object_ft * OTF
+        acquisition_est = torch.real(ifft2(image_fourier_space, dim=(1, 2)))
+
+        return acquisition_est, fluo_est, phase_aberration_est
+
+
+
 
 
     def forward(self, plane,dn_norm=1):
@@ -466,7 +499,7 @@ class StaticNet(ZernNet):
                  static_phase=True, n_gammas=5, input_gammas_zernike=[], b_gamma_optimization=False,
                  num_polynomials_gammas=20,acquisition_data=[], optimize_phase_diversities_with_mlp=True,z_mode=30, bpm=[], device=[]):
         super().__init__(zernike, pupil, width, PSF_size, phs_layers=phs_layers, use_FFT=use_FFT, bsize=bsize,
-                         use_pe=use_pe, num_polynomials_gammas=num_polynomials_gammas, acquisition_data=acquisition_data, z_mode=z_mode, bpm=bpm, device=device)
+                         use_pe=use_pe, num_polynomials_gammas=num_polynomials_gammas, acquisition_data=acquisition_data, z_mode=z_mode, bpm=bpm, device=device, n_gammas=n_gammas)
         self.n_gammas = n_gammas
         self.pupil = pupil
         self.zernike = zernike
