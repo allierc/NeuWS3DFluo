@@ -134,7 +134,7 @@ def data_train():
 
     total_it = 0
 
-    loss0_list = []
+    loss_list = []
     loss1_list = []  # Iest - I_gt
     loss2_list = []  # Iest - acquisition
     loss3_list = []  # I_gt - acquisition
@@ -160,8 +160,8 @@ def data_train():
 
         if epoch % 20 == 0:
             print (f'epoch: {epoch} loss: {np.round(loss.item(),6)}')
-        if epoch % 20 == 0:
-            imwrite(f'./{log_dir}/fluo_est_{epoch}.tif', fluo_est.detach().cpu().numpy().squeeze())
+        # if epoch % 20 == 0:
+        #     imwrite(f'./{log_dir}/fluo_est_{epoch}.tif', fluo_est.detach().cpu().numpy().squeeze())
 
     y_pred = net.forward_volume()
     for k in range(bpm.n_gammas + 1):
@@ -191,21 +191,20 @@ def data_train():
         optimizer_fluo_3D.step()
         optimizer_dn_3D.step()
 
-        loss0_list.append(loss.item() / model_config['batch_size'])
+        loss_list.append(loss.item() / model_config['batch_size'])
         loss1_list.append(loss_fluo_est_var.item() / model_config['batch_size'])
         loss2_list.append(loss_fluo_est_TV.item() / model_config['batch_size'])
         loss3_list.append(loss_dn_est_TV.item() / model_config['batch_size'])
 
         if epoch % 20 == 0:
             print(f'epoch: {epoch} loss: {np.round(loss.item(), 6)}')
-        if epoch % 200 == 0:
+        if epoch % 800 == 0:
             fluo_est = torch.moveaxis(fluo_est, 0, -1)
             fluo_est = torch.moveaxis(fluo_est, 0, -1)
-            imwrite(f'./{log_dir}/fluo_est_{epoch}.tif', fluo_est.detach().cpu().numpy().squeeze())
+            imwrite(f'./{log_dir}/fluo_est_{epoch}_{regul_1}_{regul_2}_{regul_3}.tif', fluo_est.detach().cpu().numpy().squeeze())
             dn_est = torch.moveaxis(dn_est, 0, -1)
             dn_est = torch.moveaxis(dn_est, 0, -1)
-            imwrite(f'./{log_dir}/dn_est_{epoch}.tif', dn_est.detach().cpu().numpy().squeeze())
-
+            imwrite(f'./{log_dir}/dn_est_{epoch}_{regul_1}_{regul_2}_{regul_3}.tif', dn_est.detach().cpu().numpy().squeeze())
 
 
     # torch.save(pred, f'./{log_dir}/pred_{epoch}.pt')
@@ -221,12 +220,22 @@ def data_train():
 
 
     fig = plt.figure(figsize=(8, 8))
-    plt.plot(loss0_list)
-    plt.plot(loss1_list)
-    plt.plot(loss2_list)
-    plt.plot(loss3_list)
+    plt.plot(loss_list)
     plt.savefig(f"./{log_dir}/Loss.tif")
     plt.close()
+    fig = plt.figure(figsize=(8, 8))
+    plt.plot(loss1_list)
+    plt.savefig(f"./{log_dir}/Loss1.tif")
+    plt.close()
+    fig = plt.figure(figsize=(8, 8))
+    plt.plot(loss2_list)
+    plt.savefig(f"./{log_dir}/Loss2.tif")
+    plt.close()
+    fig = plt.figure(figsize=(8, 8))
+    plt.plot(loss3_list)
+    plt.savefig(f"./{log_dir}/Loss3.tif")
+    plt.close()
+
 
 if __name__ == '__main__':
 
@@ -247,12 +256,9 @@ if __name__ == '__main__':
 
     config_list = ['config_recons_CElegans'] #, 'config_recons_CElegans_0','config_recons_CElegans_1','config_recons_CElegans_2'] #,'config_recons_CElegans_3','config_recons_CElegans_4','config_recons_CElegans_5','config_recons_CElegans_6','config_recons_CElegans_7','config_recons_CElegans_8'] #['config_grid', 'config_beads', 'config_beads_cropped','config_boats']
 
-    # regul_list = ["0", "5", "50"]
-    regul_list = ["10", "100", "1000"]
+    regul_list = ["0", "5", "10", "50", "100", "200", "500", "1000", "5000", "10000"]
 
-    for regul_1 in regul_list:
-        for regul_2 in regul_list:
-            for regul_3 in regul_list:
+    for regul_ in regul_list:
 
                 for config in config_list:
 
@@ -270,9 +276,9 @@ if __name__ == '__main__':
                     with open(f'./config/{config}.yaml', 'r') as file:
                         model_config = yaml.safe_load(file)
 
-                    model_config['regul_1'] = regul_1
-                    model_config['regul_2'] = regul_2
-                    model_config['regul_3'] = regul_3
+                    model_config['regul_1'] = regul_
+                    # model_config['regul_2'] = regul_
+                    # model_config['regul_3'] = regul_
 
                     torch.cuda.empty_cache()
                     bpm = bpmPytorch(model_config, device=device)      # just to get the pupil function
