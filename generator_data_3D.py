@@ -180,18 +180,21 @@ def data_train():
             plane = np.random.randint(bpm.Nz)
             pred, dn_est, fluo_est = net (plane, dn_norm=0)
 
-            loss_fluo_est_negative = -regul_0 * torch.relu(-fluo_est).norm(2) / Npixels
-            loss_fluo_est_norm1 = regul_1 * fluo_est.norm(1) / Npixels
+            loss_fluo_est_negative = regul_0 * torch.relu(-fluo_est).norm(2) / Npixels
+            loss_fluo_est_var = -regul_1 * torch.std(fluo_est)**2
             loss_fluo_est_TV = regul_2 * TV(fluo_est)
             loss_dn_est_TV = regul_3 * TV(dn_est)
 
-            loss += F.mse_loss(pred[:,plane], y_batches[:,plane]) + loss_fluo_est_negative + loss_fluo_est_norm1 + loss_fluo_est_TV + loss_dn_est_TV
+            loss += F.mse_loss(pred[:,plane], y_batches[:,plane]) + loss_fluo_est_negative + loss_fluo_est_var + loss_fluo_est_TV + loss_dn_est_TV
 
         loss.backward()
         optimizer_fluo_3D.step()
         optimizer_dn_3D.step()
 
         loss0_list.append(loss.item() / model_config['batch_size'])
+        loss1_list.append(loss_fluo_est_var.item() / model_config['batch_size'])
+        loss2_list.append(loss_fluo_est_TV.item() / model_config['batch_size'])
+        loss3_list.append(loss_dn_est_TV.item() / model_config['batch_size'])
 
         if epoch % 20 == 0:
             print(f'epoch: {epoch} loss: {np.round(loss.item(), 6)}')
@@ -219,6 +222,9 @@ def data_train():
 
     fig = plt.figure(figsize=(8, 8))
     plt.plot(loss0_list)
+    plt.plot(loss1_list)
+    plt.plot(loss2_list)
+    plt.plot(loss3_list)
     plt.savefig(f"./{log_dir}/Loss.tif")
     plt.close()
 
