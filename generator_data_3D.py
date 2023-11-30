@@ -72,7 +72,7 @@ def data_generate():
 
     start = timer()
     phiL = torch.rand([bpm.image_width, bpm.image_width, 1000], dtype=torch.float32, requires_grad=False,
-                      device='cuda:0') * 2 * np.pi
+                      device=device) * 2 * np.pi
 
     for plane in tqdm(range(0, bpm.Nz)):
         I = torch.tensor(np.zeros((bpm.n_gammas + 1, bpm.image_width, bpm.image_width)), device=bpm.device,
@@ -94,7 +94,7 @@ def data_generate():
     torch.save(dn_norm, f'./{log_dir}/dn_norm.pt')
 
     for k in range(bpm.n_gammas + 1):
-        imwrite(f'./{log_dir}/stack_{k}.tif', (y_batches[k]/y_norm).detach().cpu().numpy().squeeze())
+        imwrite(f'./{log_dir}/fluo_{k}.tif', (y_batches[k]/y_norm).detach().cpu().numpy().squeeze())
 
 
 def data_train():
@@ -134,12 +134,59 @@ def data_train():
 
     total_it = 0
 
-
     regul_0, regul_1, regul_2, regul_3, regul_4, regul_5 = [torch.tensor(float(model_config[f'regul_{i}']),device=device) for i in range(6)]
 
     Npixels = torch.tensor(bpm.Npixels,device=device)
 
-    # Initialisation fluo_est  ##################################################
+    object_est = torch.zeros((bpm.n_gammas + 1,bpm.Nz,bpm.image_width,bpm.image_width),device=device)
+
+    for plane in range(18,-1,-1):
+
+        optimizer_fluo_3D = torch.optim.Adam(net.g_fluo_3D.parameters(), lr=0.01)
+        optimizer_phase = torch.optim.Adam(net.g_g.parameters(), lr=0.01)  # Phase aberration optimizer (Zernike + MLP)
+        loss_list = []
+        for epoch in range(1000):
+
+                optimizer_fluo_3D.zero_grad()
+                optimizer_phase.zero_grad()
+
+                loss=0
+
+                for batch in range(model_config['batch_size']):
+                    acquisition_est, fluo_est, phase_aberration_est = net.optimization_aberration(plane=plane)
+                    loss_phase_est = torch.relu((torch.abs(phase_aberration_est) - 8 * np.pi)).norm(2)
+                    loss_image_negative = torch.relu(-fluo_est[0]).norm(2)
+                    loss_fluo_est_TV = TV(fluo_est)
+                    loss += F.mse_loss(acquisition_est, y_batches[:,plane]) + loss_phase_est + 1E4*loss_image_negative + loss_fluo_est_TV / 500
+
+                loss_list.append(loss.item() / model_config['batch_size'])
+
+                loss.backward()
+                optimizer_fluo_3D.step()
+                optimizer_phase.step()
+
+                if epoch%100 == 0:
+                    print(f'epoch: {epoch} loss: {np.round(loss.item(), 6)}')
+                    # imwrite(f'./{log_dir}/viz/fluo_est_{epoch}.tif', fluo_est[0].detach().cpu().numpy().squeeze())
+                    # imwrite(f'./{log_dir}/viz/phase_aberration_est_{epoch}.tif', phase_aberration_est[0].detach().cpu().numpy().squeeze())
+
+        object_est[:,plane]=fluo_est
+
+    torch.save({'model_state_dict': net.state_dict()}, os.path.join(log_dir, 'model_init.pt'))
+
+
+
+    fig = plt.figure(figsize=(8, 8))
+    plt.ion()
+    plt.yscale("log")
+    plt.plot(loss_list)
+    plt.savefig(f"./{log_dir}/Loss_fluo_init.tif")
+    plt.close()
+
+    for k in range(bpm.n_gammas + 1):
+        imwrite(f'./{log_dir}/fluo_init_{k}.tif', (object_est[k]).detach().cpu().numpy().squeeze())
+
+    #### Initialisation fluo_est  ##################################################
 
     optimizer_fluo_3D = torch.optim.Adam(net.g_fluo_3D.parameters(), lr=0.01)  # Object optimizer
     optimizer_dn_3D = torch.optim.Adam(net.g_dn_3D.parameters(), lr=0.01)
@@ -149,69 +196,27 @@ def data_train():
         loss = 0
         for batch in range(8):
             fluo_est = net.init_fluo()
-            loss += F.mse_loss(fluo_est, y_batches[0])
+            loss += F.mse_loss(fluo_est, object_est[0])
         loss.backward()
         optimizer_fluo_3D.step()
 
         if epoch % 20 == 0:
             print (f'epoch: {epoch} loss: {np.round(loss.item(),6)}')
-        # if epoch % 20 == 0:
-        #     imwrite(f'./{log_dir}/fluo_est_{epoch}.tif', fluo_est.detach().cpu().numpy().squeeze())
 
-    y_pred = net.forward_volume()
+    object_est = net.forward_volume()
     for k in range(bpm.n_gammas + 1):
-        imwrite(f'./{log_dir}/stack_init_{k}.tif', (y_pred[k]).detach().cpu().numpy().squeeze())
-
-    optimizer_fluo_3D = torch.optim.Adam(net.g_fluo_3D.parameters(), lr=0.005)
-    optimizer_phase = torch.optim.Adam(net.g_g.parameters(), lr=0.005)  # Phase aberration optimizer (Zernike + MLP)
-    loss_list = []
-    loss1_list = []  # Iest - I_gt
-    loss2_list = []  # Iest - acquisition
-    loss3_list = []  # I_gt - acquisition
-
-    fig = plt.figure(figsize=(8, 8))
-    plt.ion()
-    plt.imshow(fluo_est[plane].detach().cpu().numpy())
-
-    for epoch in range(50):
-
-        for plane in range(bpm.Nz):
-
-            optimizer_fluo_3D.zero_grad()
-            optimizer_phase.zero_grad()
-
-            loss=0
-
-            for batch in range(model_config['batch_size']):
-                acquisition_est, fluo_est, phase_aberration_est = net.optimization_aberration(plane=plane)
-                loss_phase_est = torch.relu((torch.abs(phase_aberration_est) - 8 * np.pi)).norm(2)
-                loss_image_negative = torch.relu(-fluo_est[0]).norm(2)
-                loss_fluo_est_TV = TV(fluo_est)
-                loss += F.mse_loss(acquisition_est, y_batches[:,plane]) + loss_phase_est + 1E4*loss_image_negative + loss_fluo_est_TV / 500
-
-            loss_list.append(loss.item() / model_config['batch_size'])
-
-            loss.backward()
-            optimizer_fluo_3D.step()
-            optimizer_phase.step()
-
-            print(f'epoch: {epoch} loss: {np.round(loss.item(), 6)}')
-
-            if epoch%10 == 0:
-                imwrite(f'./{log_dir}/viz/fluo_est_{epoch}.tif', fluo_est[0].detach().cpu().numpy().squeeze())
-                imwrite(f'./{log_dir}/viz/phase_aberration_est_{epoch}.tif', phase_aberration_est[0].detach().cpu().numpy().squeeze())
-
-    y_pred = net.forward_volume()
-    for k in range(bpm.n_gammas + 1):
-        imwrite(f'./{log_dir}/stack_phase_diversity_{k}.tif', (y_pred[k]).detach().cpu().numpy().squeeze())
+        imwrite(f'./{log_dir}/fluo_intermediate{k}.tif', (object_est[k]).detach().cpu().numpy().squeeze())
 
     fig = plt.figure(figsize=(8, 8))
     plt.ion()
     plt.yscale("log")
     plt.plot(loss_list)
-    plt.savefig(f"./{log_dir}/Loss_phase_diversity.tif")
+    plt.savefig(f"./{log_dir}/Loss_fluo_intermediate.tif")
     plt.close()
 
+    torch.save({'model_state_dict': net.state_dict(),
+                'optimizer_state_dict': optimizer_fluo_3D.state_dict()},
+               os.path.join(log_dir, 'model_intermediate.pt'))
 
     # optimizer_fluo_3D = torch.optim.Adam(net.g_fluo_3D.parameters(), lr=model_config['init_lr'])  # Object optimizer
     optimizer_dn_3D = torch.optim.Adam(net.g_dn_3D.parameters(), lr=model_config['init_lr'])
@@ -219,43 +224,50 @@ def data_train():
     loss1_list = []  # Iest - I_gt
     loss2_list = []  # Iest - acquisition
     loss3_list = []  # I_gt - acquisition
-    for epoch in range(model_config['num_epochs']):
 
-        # optimizer_fluo_3D.zero_grad();
-        optimizer_dn_3D.zero_grad();
+    if False:
 
-        loss = 0
+        for epoch in range(model_config['num_epochs']):
 
-        for batch in range(model_config['batch_size']):
-            plane = np.random.randint(bpm.Nz)
-            pred, dn_est, fluo_est = net (plane, dn_norm=0)
+            # optimizer_fluo_3D.zero_grad();
+            optimizer_dn_3D.zero_grad();
 
-            # loss_fluo_est_negative = regul_0 * torch.relu(-fluo_est).norm(2) / Npixels
-            # loss_fluo_est_var = -regul_1 * torch.std(fluo_est)**2
-            # loss_fluo_est_TV = regul_2 * TV(fluo_est)
-            # loss_dn_est_TV = regul_3 * TV(dn_est)
+            loss = 0
 
-            loss += F.mse_loss(pred[:,plane], y_batches[:,plane]) + 1E4 * TV(dn_est) # + loss_fluo_est_negative + loss_fluo_est_var + loss_fluo_est_TV +
+            for batch in range(model_config['batch_size']):
+                plane = np.random.randint(bpm.Nz)
+                pred, dn_est, fluo_est = net (plane, dn_norm=0)
 
-        loss.backward()
+                # loss_fluo_est_negative = regul_0 * torch.relu(-fluo_est).norm(2) / Npixels
+                # loss_fluo_est_var = -regul_1 * torch.std(fluo_est)**2
+                # loss_fluo_est_TV = regul_2 * TV(fluo_est)
+                # loss_dn_est_TV = regul_3 * TV(dn_est)
 
-        # optimizer_fluo_3D.step()
-        optimizer_dn_3D.step()
+                loss += F.mse_loss(pred[:,plane], y_batches[:,plane]) + 1E4 * TV(dn_est) # + loss_fluo_est_negative + loss_fluo_est_var + loss_fluo_est_TV +
 
-        loss_list.append(loss.item() / model_config['batch_size'])
-        loss1_list.append(loss_fluo_est_var.item() / model_config['batch_size'])
-        loss2_list.append(loss_fluo_est_TV.item() / model_config['batch_size'])
-        loss3_list.append(loss_dn_est_TV.item() / model_config['batch_size'])
+            loss.backward()
 
-        if epoch % 20 == 0:
-            print(f'epoch: {epoch} loss: {np.round(loss.item(), 6)}')
-        if epoch % 800 == 0:
-            fluo_est = torch.moveaxis(fluo_est, 0, -1)
-            fluo_est = torch.moveaxis(fluo_est, 0, -1)
-            imwrite(f'./{log_dir}/fluo_est_{epoch}_{regul_1}_{regul_2}_{regul_3}.tif', fluo_est.detach().cpu().numpy().squeeze())
-            dn_est = torch.moveaxis(dn_est, 0, -1)
-            dn_est = torch.moveaxis(dn_est, 0, -1)
-            imwrite(f'./{log_dir}/dn_est_{epoch}_{regul_1}_{regul_2}_{regul_3}.tif', dn_est.detach().cpu().numpy().squeeze())
+            # optimizer_fluo_3D.step()
+            optimizer_dn_3D.step()
+
+            loss_list.append(loss.item() / model_config['batch_size'])
+            # loss1_list.append(loss_fluo_est_var.item() / model_config['batch_size'])
+            # loss2_list.append(loss_fluo_est_TV.item() / model_config['batch_size'])
+            # loss3_list.append(loss_dn_est_TV.item() / model_config['batch_size'])
+
+            if epoch % 20 == 0:
+                print(f'epoch: {epoch} loss: {np.round(loss.item(), 6)}')
+            if epoch % 800 == 0:
+                fluo_est = torch.moveaxis(fluo_est, 0, -1)
+                fluo_est = torch.moveaxis(fluo_est, 0, -1)
+                imwrite(f'./{log_dir}/fluo_est_{epoch}_{regul_1}_{regul_2}_{regul_3}.tif', fluo_est.detach().cpu().numpy().squeeze())
+                dn_est = torch.moveaxis(dn_est, 0, -1)
+                dn_est = torch.moveaxis(dn_est, 0, -1)
+                imwrite(f'./{log_dir}/dn_est_{epoch}_{regul_1}_{regul_2}_{regul_3}.tif', dn_est.detach().cpu().numpy().squeeze())
+
+        y_pred = net.forward_volume()
+        for k in range(bpm.n_gammas + 1):
+            imwrite(f'./{log_dir}/fluo_final_{k}.tif', (y_pred[k]).detach().cpu().numpy().squeeze())
 
 
     # torch.save(pred, f'./{log_dir}/pred_{epoch}.pt')
@@ -275,21 +287,21 @@ def data_train():
     plt.plot(loss_list)
     plt.savefig(f"./{log_dir}/Loss.tif")
     plt.close()
-    fig = plt.figure(figsize=(8, 8))
-    plt.yscale("log")
-    plt.plot(loss1_list)
-    plt.savefig(f"./{log_dir}/Loss1.tif")
-    plt.close()
-    fig = plt.figure(figsize=(8, 8))
-    plt.yscale("log")
-    plt.plot(loss2_list)
-    plt.savefig(f"./{log_dir}/Loss2.tif")
-    plt.close()
-    fig = plt.figure(figsize=(8, 8))
-    plt.yscale("log")
-    plt.plot(loss3_list)
-    plt.savefig(f"./{log_dir}/Loss3.tif")
-    plt.close()
+    # fig = plt.figure(figsize=(8, 8))
+    # plt.yscale("log")
+    # plt.plot(loss1_list)
+    # plt.savefig(f"./{log_dir}/Loss1.tif")
+    # plt.close()
+    # fig = plt.figure(figsize=(8, 8))
+    # plt.yscale("log")
+    # plt.plot(loss2_list)
+    # plt.savefig(f"./{log_dir}/Loss2.tif")
+    # plt.close()
+    # fig = plt.figure(figsize=(8, 8))
+    # plt.yscale("log")
+    # plt.plot(loss3_list)
+    # plt.savefig(f"./{log_dir}/Loss3.tif")
+    # plt.close()
 
 
 if __name__ == '__main__':
@@ -309,9 +321,9 @@ if __name__ == '__main__':
     print(f'num_polynomials: {num_polynomials}')
     print(f'Niter: {Niter}')
 
-    config_list = ['config_recons_CElegans'] #, 'config_recons_CElegans_0','config_recons_CElegans_1','config_recons_CElegans_2'] #,'config_recons_CElegans_3','config_recons_CElegans_4','config_recons_CElegans_5','config_recons_CElegans_6','config_recons_CElegans_7','config_recons_CElegans_8'] #['config_grid', 'config_beads', 'config_beads_cropped','config_boats']
+    config_list = ['config_recons_CElegans_opt'] # ['config_CElegans_fluo_aberration'] #['config_recons_CElegans'] # ['config_recons_CElegans'] #, 'config_recons_CElegans_0','config_recons_CElegans_1','config_recons_CElegans_2'] #,'config_recons_CElegans_3','config_recons_CElegans_4','config_recons_CElegans_5','config_recons_CElegans_6','config_recons_CElegans_7','config_recons_CElegans_8'] #['config_grid', 'config_beads', 'config_beads_cropped','config_boats']
 
-    regul_list = ["0", "5", "10", "50", "100", "200", "500", "1000", "5000", "10000"]
+    regul_list = ["0"] #, "5", "10", "50", "100", "200", "500", "1000", "5000", "10000"]
 
     for regul_ in regul_list:
 
@@ -346,7 +358,13 @@ if __name__ == '__main__':
                     zernike_coefficients_gt = model_config['zernike_coefficients_gt']
                     zernike_coefficients_gt = [z * conversion_factor_rms_pi for z in zernike_coefficients_gt]
 
-                    input_gammas_zernike = conversion_factor_rms_pi * np.array(model_config['input_gammas_zernike'])
+                    if 'input_gammas_zernike' in model_config and isinstance(model_config['input_gammas_zernike'],str):  # if input_gammas_zernike exists and is string, load file
+                        model_config['input_gammas_zernike'] = np.loadtxt(model_config['input_gammas_zernike'],delimiter=',')
+                    if 'input_gammas_zernike' not in model_config:
+                        input_gammas_zernike = []
+                    else:
+                        input_gammas_zernike = conversion_factor_rms_pi * np.array(model_config['input_gammas_zernike'])
+
                     n_gammas = model_config['n_gammas']
                     p_num, p_unit = model_config['pixel_size'].split()
                     pixel_size = float(p_num) * u.Unit(p_unit)
