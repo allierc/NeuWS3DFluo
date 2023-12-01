@@ -89,13 +89,18 @@ class bpmPytorch(torch.nn.Module):
         self.field_shape = (self.image_width, self.image_width)
 
         null_obj = np.zeros(( self.image_width, self.image_width, self.Nz,))
-        self.dn0 = torch.tensor(null_obj, device=self.device, dtype=self.dtype, requires_grad=False)
+        self.dn = torch.tensor(null_obj, device=self.device, dtype=self.dtype, requires_grad=False)
         self.fluo = torch.tensor(null_obj, device=self.device, dtype=self.dtype, requires_grad=False)
         self.aber = torch.tensor(null_obj, device=self.device, dtype=self.dtype, requires_grad=False)
 
         new_obj = imread(model_config['dn_path']) * self.dn_factor
-        new_obj = np.moveaxis(new_obj, 0, -1)
-        self.dn0 = torch.tensor(new_obj, device=self.device, dtype=self.dtype, requires_grad=False)
+        if new_obj.ndim == 2:
+            self.dn = torch.tensor(new_obj, device=self.device, dtype=self.dtype, requires_grad=False)
+            self.dn = self.dn.repeat(self.Nz, 1, 1)
+            self.dn = torch.moveaxis(self.dn, 0, -1)
+        else:
+            new_obj = np.moveaxis(new_obj, 0, -1)
+            self.dn = torch.tensor(new_obj, device=self.device, dtype=self.dtype, requires_grad=False)
 
         new_obj = imread(model_config['fluo_path'])
         if new_obj.ndim==2:
@@ -106,7 +111,7 @@ class bpmPytorch(torch.nn.Module):
             new_obj = np.moveaxis(new_obj, 0, -1)
             self.fluo = torch.tensor(new_obj, device=self.device, dtype=self.dtype, requires_grad=False)
 
-        self.dn0_layers = self.dn0.unbind(dim=2)
+        self.dn_layers = self.dn.unbind(dim=2)
         self.fluo_layers = self.fluo.unbind(dim=2)
 
         N_x = np.arange(-self.image_width / 2 + 0, self.image_width / 2 - 0)
@@ -137,7 +142,7 @@ class bpmPytorch(torch.nn.Module):
         imwrite('./C.tif', np.array(C.cpu()))
         self.C = C.to(self.device)
 
-    def forward(self, plane=None, phi=None, naber=0):
+    def forward(self, plane=None, phi=None, naber=0, ext_pupil=[], phase_aberration_gt=[]):
 
         k0 = 2 * np.pi / self.wavelength
 
@@ -155,9 +160,9 @@ class bpmPytorch(torch.nn.Module):
             if (i==plane):
                 S = torch.mul(self.fluo_layer,torch.exp(phi_layers[i]*1.j))
                 S = ifft2(torch.mul(fft2(S),self.C))
-                self.field = torch.mul(S, torch.exp(torch.mul(self.dn0_layers[i], coef)))
+                self.field = torch.mul(S, torch.exp(torch.mul(self.dn_layers[i], coef)))
             else:
-                self.field = torch.mul(self.field, torch.exp(torch.mul(self.dn0_layers[i], coef)))
+                self.field = torch.mul(self.field, torch.exp(torch.mul(self.dn_layers[i], coef)))
             self.field = ifft2(torch.mul(fft2(self.field), self.Hz_down))
 
         self.field = fft2(self.field)
@@ -165,8 +170,12 @@ class bpmPytorch(torch.nn.Module):
         for i in range(plane,self.Nz):
             self.field = torch.mul(self.field,self.Hz_up)
 
-        self.field = self.field.repeat((self.n_gammas+1, 1, 1))
-        return torch.abs(ifft2(self.field * self.gammas)) ** 2
+        return torch.abs(ifft2(self.field)) ** 2
+
+
+
+        # self.field = self.field.repeat((self.n_gammas+1, 1, 1))
+        # return torch.abs(ifft2(self.field * self.gammas)) ** 2
 
     def FresnelPropag(self, dz=0, fdir=[0, 0]):
 

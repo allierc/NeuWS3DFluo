@@ -350,6 +350,8 @@ class ZernNet(nn.Module):
     def __init__(self, zernike, pupil, width, PSF_size, phs_layers=2, use_FFT=True, bsize=8, use_pe=False, num_polynomials_gammas=20, static_phase=True, acquisition_data=[],z_mode = 30, bpm=[], device=[], n_gammas=[]):
         super().__init__()
 
+        self.g_im = G_PatchTensor(width)
+
         self.device = device
         self.bpm = bpm
 
@@ -370,6 +372,19 @@ class ZernNet(nn.Module):
 
         self.g_g = MLP(in_dim=in_dim, hidden_dim=hidden_dim, num_layers=phs_layers)  # phase aberrations
 
+    def calculate_image(self, object, aberration, pupil):
+        pupil_function = pupil.values * torch.exp(1j * aberration)
+        prf = fftshift(ifft2(ifftshift(pupil_function, dim=(1, 2))), dim=(1, 2))
+        PSF = torch.abs(prf) ** 2
+        PSF = PSF / torch.sum(PSF, dim=(1, 2), keepdim=True)
+        OTF = fft2(ifftshift(PSF, dim=(1, 2)))
+        object_ft = fft2(object, dim=(1, 2))
+        image_fourier_space = object_ft * OTF
+        image = torch.real(ifft2(image_fourier_space, dim=(1, 2)))
+        # Scale to [0, 1]
+        # image = (image - torch.min(image, dim=(1,2), keepdim=True)[0]) / (torch.max(image, dim=(1,2), keepdim=True)[0] - torch.min(image, dim=(1,2), keepdim=True)[0])
+        return image
+
     def init_fluo (self):
 
         z_= torch.linspace(0, 30, steps=30,device=self.device)
@@ -379,7 +394,7 @@ class ZernNet(nn.Module):
 
         return fluo_est
 
-    def forward_volume(self):
+    def forward_volume_eval(self):
 
         z_ = torch.linspace(0, 30, steps=30, device=self.device)
 
@@ -393,7 +408,7 @@ class ZernNet(nn.Module):
         dn_est = dn_est * 0
 
         self.bpm.fluo_layers = fluo_est.unbind(dim=2)
-        self.bpm.dn0_layers = dn_est.unbind(dim=2)
+        self.bpm.dn_layers = dn_est.unbind(dim=2)
 
         phiL = torch.rand([self.bpm.image_width, self.bpm.image_width, 1000], dtype=torch.float32, requires_grad=False,device=self.device) * 2 * np.pi
         self.bpm.phi_layers = phiL.unbind(dim=2)
@@ -441,11 +456,7 @@ class ZernNet(nn.Module):
 
         return acquisition_est, fluo_est, phase_aberration_est
 
-
-
-
-
-    def forward(self, plane,dn_norm=1):
+    def forward_3D(self, plane,dn_norm=1):
 
         z_= torch.linspace(0, 30, steps=30,device=self.device)
 
@@ -457,7 +468,7 @@ class ZernNet(nn.Module):
         dn_est = dn_est.squeeze()
         dn_est = torch.moveaxis(dn_est, 0, -1)
 
-        self.bpm.dn0_layers = dn_est.unbind(dim=2) # * dn_norm
+        self.bpm.dn_layers = dn_est.unbind(dim=2) # * dn_norm
         self.bpm.fluo_layers = fluo_est.unbind(dim=2)
 
         phiL = torch.rand([self.bpm.image_width, self.bpm.image_width, 1000], dtype=torch.float32, requires_grad=False,device=self.device) * 2 * np.pi
@@ -478,6 +489,19 @@ class ZernNet(nn.Module):
         y_pred[:, plane:plane + 1, :, :] = I[:, None, :, :]
 
         return y_pred, dn_est, fluo_est
+
+    def forward(self, object_gt, phase_aberration_gt):
+        object_est, total_aberration_est, phase_aberration_est, gammas, gammas_raw = self.get_estimates()
+
+        # Estimated_acquisition
+        acquisition_est = self.calculate_image(object_est, phase_aberration_est + gammas, self.pupil)
+
+        # Ground truth acquisition
+        acquisition_gt = self.calculate_image(object_gt, phase_aberration_gt + gammas, self.pupil)
+
+        total_aberration_est = torch.squeeze(total_aberration_est)
+        kernel = []
+        return acquisition_est, acquisition_gt, gammas, kernel, total_aberration_est, phase_aberration_est, object_est, gammas_raw
 
     def calculate_image(self, object, aberration, pupil):
         pupil_function = pupil.values * torch.exp(1j * aberration)
@@ -514,17 +538,59 @@ class StaticNet(ZernNet):
 
         self.g_g = MLP(in_dim=in_dim, hidden_dim=hidden_dim, num_layers=phs_layers)  # phase aberrations
 
-        self.gammas_nnr = torch.nn.ModuleList(
-            [MLP(in_dim=in_dim, hidden_dim=hidden_dim, num_layers=phs_layers) for _ in range(n_gammas + 1)])
+        self.gammas_nnr = torch.nn.ModuleList([MLP(in_dim=in_dim, hidden_dim=hidden_dim, num_layers=phs_layers) for _ in range(n_gammas + 1)])
 
         self.static_phase = static_phase
 
         if len(input_gammas_zernike) > 0:
-            self.gammas_zernike = nn.Parameter(torch.tensor(input_gammas_zernike, device=self.device).float(),
-                                               requires_grad=b_gamma_optimization)
+            self.gammas_zernike = nn.Parameter(torch.tensor(input_gammas_zernike, device=device).float(),requires_grad=b_gamma_optimization)
         else:
             self.gammas_zernike = []
 
 
-    # TODO: the forward function is inherited from the parent class!
-    # TODO: does it make sense to make StaticDiffuseNet a child class of TemporalZernNet
+    def get_estimates(self):
+
+        object_est = self.g_im()  # Neural representation of estimated object
+        object_est = object_est.squeeze().repeat(self.n_gammas + 1, 1, 1)
+
+        g_in = self.basis[0]  # Zernike basis 1x15
+
+        g_out_gammas = []
+        g_out_gammas.append(self.gammas_nnr[0])  # Flat phase
+
+        for i in range(1, self.n_gammas + 1):
+            g_out_gammas.append(self.gammas_nnr[i](g_in))  # dim 1x256x256
+
+        g_in = self.basis  # Zernike basis 6x15
+        g_out_phi = self.g_g(
+            g_in)  # Neural representation of aberration from Zernike basis  dim 6 256 256 all identical
+
+        g_out_phi = g_out_phi.permute(0, 3, 1, 2)
+        phase_aberration_est = g_out_phi[:, 1:2] * self.pupil.values
+        amplitude_aberration_est = g_out_phi[:, 0:1]  # NOTE: Amplitude should be 1 in our case! Maybe remove it
+        total_aberration_est = amplitude_aberration_est * torch.exp(1j * phase_aberration_est)
+        phase_aberration_est = phase_aberration_est.squeeze()
+
+        if self.optimize_phase_diversities_with_mlp:
+            # Optimized phase diversities (gammas)
+            gammas = torch.zeros(self.n_gammas + 1, 1, self.bfp_size, self.bfp_size, device=self.device)
+            gammas_raw = []
+            for i in range(1, self.n_gammas + 1):
+                g = self.gammas_nnr[i](g_in[0])
+                g = g.permute(2, 0, 1)
+                gammas[i, :, :, :] = g[1:2] * self.pupil.values
+                gammas_raw.append(g[1:2])
+            gammas = gammas.squeeze()
+        else:
+            # TODO: assert that gammas_zernike is greater than 0 (len(self.gammas_zernike) > 0)
+            # Optimize Zernike coefficients for gammas without MLP
+            gammas = torch.zeros(self.n_gammas + 1, 1, self.bfp_size, self.bfp_size, device=self.device)
+            gammas_raw = []
+            for i in range(1, self.n_gammas + 1):
+                g = g_in[0] * self.gammas_zernike[i].repeat(self.bfp_size, self.bfp_size, 1)
+                g = torch.sum(g, axis=2).float()
+                gammas[i, :, :, :] = g * self.pupil.values
+                gammas_raw.append(g)
+            gammas = gammas.squeeze()
+
+        return object_est, total_aberration_est, phase_aberration_est, gammas, gammas_raw

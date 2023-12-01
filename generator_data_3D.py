@@ -71,25 +71,36 @@ def data_generate():
     y_batches = torch.zeros((bpm.n_gammas + 1, 30, image_width, image_width), device=device)
 
     start = timer()
-    phiL = torch.rand([bpm.image_width, bpm.image_width, 1000], dtype=torch.float32, requires_grad=False,
-                      device=device) * 2 * np.pi
+    phiL = torch.rand([bpm.image_width, bpm.image_width, 1000], dtype=torch.float32, requires_grad=False, device=device) * 2 * np.pi
+
+    object_est, total_aberration_est, phase_aberration_est, gammas, gammas_raw = net.get_estimates()
+    pupil_function = pupil.values * torch.exp(1j * (phase_aberration_gt + gammas))
+    prf = fftshift(ifft2(ifftshift(pupil_function, dim=(1, 2))), dim=(1, 2))
+    PSF = torch.abs(prf) ** 2
+    PSF = PSF / torch.sum(PSF, dim=(1, 2), keepdim=True)
+    OTF = fft2(ifftshift(PSF, dim=(1, 2)))
+
 
     for plane in tqdm(range(0, bpm.Nz)):
-        I = torch.tensor(np.zeros((bpm.n_gammas + 1, bpm.image_width, bpm.image_width)), device=bpm.device,
-                         dtype=bpm.dtype, requires_grad=False)
-
+        object_gt = torch.tensor(np.zeros((bpm.image_width, bpm.image_width)), device=bpm.device,dtype=bpm.dtype, requires_grad=False)
         for w in range(0, Niter):
             zoi = np.random.randint(1000 - bpm.Nz)
             with torch.no_grad():
-                I = I + bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz], naber=0)
-        y_batches[:, plane:plane + 1, :, :] = I[:, None, :, :]
+                object_gt = object_gt + bpm(plane=int(plane), phi=phiL[:, :, zoi:zoi + bpm.Nz])
+        object_gt=object_gt.repeat(bpm.n_gammas + 1,1,1) / 0.8E7
+
+        object_ft = fft2(object_gt, dim=(1, 2))
+        image_fourier_space = object_ft * OTF
+        image = torch.real(ifft2(image_fourier_space, dim=(1, 2)))
+
+        y_batches[:, plane:plane + 1, :, :] = image[:, None, :, :]
 
     end = timer()
     print(f'elapsed time : {np.round(end - start, 2)}')
 
     torch.save(y_batches, f'./{log_dir}/y_batches.pt')
     y_norm = torch.std(y_batches)
-    dn_norm=torch.std(bpm.dn0)
+    dn_norm=torch.std(bpm.dn)
     torch.save(y_norm, f'./{log_dir}/y_norm.pt')
     torch.save(dn_norm, f'./{log_dir}/dn_norm.pt')
 
@@ -107,29 +118,6 @@ def data_train():
     filename=f'{f[:-12]}/dn_norm.pt'
     dn_norm = torch.load(filename, map_location=device)
 
-    net = StaticNet(zernike=zernike_instance,
-                    pupil=pupil,
-                    width=image_width,
-                    PSF_size=image_width,
-                    use_FFT=True,
-                    bsize=model_config['batch_size'],
-                    phs_layers=model_config['phs_layers'],
-                    static_phase=model_config['static_phase'],
-                    n_gammas=n_gammas,
-                    input_gammas_zernike=input_gammas_zernike,
-                    b_gamma_optimization=False,
-                    num_polynomials_gammas=model_config['num_polynomials_gammas'] - 3,
-                    # NOTE: don't include piston and x/y tilts
-                    acquisition_data=[],
-                    optimize_phase_diversities_with_mlp=False,
-                    z_mode=bpm.Nz,
-                    bpm=bpm,
-                    device=device)
-
-    net = net.to(DEVICE)
-
-
-
     ### Training loop
 
     total_it = 0
@@ -140,7 +128,9 @@ def data_train():
 
     object_est = torch.zeros((bpm.n_gammas + 1,bpm.Nz,bpm.image_width,bpm.image_width),device=device)
 
-    for plane in range(18,-1,-1):
+    for plane in range(29,18,-1):
+
+        print(f'plane: {plane}')
 
         optimizer_fluo_3D = torch.optim.Adam(net.g_fluo_3D.parameters(), lr=0.01)
         optimizer_phase = torch.optim.Adam(net.g_g.parameters(), lr=0.01)  # Phase aberration optimizer (Zernike + MLP)
@@ -154,7 +144,7 @@ def data_train():
 
                 for batch in range(model_config['batch_size']):
                     acquisition_est, fluo_est, phase_aberration_est = net.optimization_aberration(plane=plane)
-                    loss_phase_est = torch.relu((torch.abs(phase_aberration_est) - 8 * np.pi)).norm(2)
+                    loss_phase_est = torch.relu((torch.abs(phase_aberration_est) - 4* np.pi)).norm(2)
                     loss_image_negative = torch.relu(-fluo_est[0]).norm(2)
                     loss_fluo_est_TV = TV(fluo_est)
                     loss += F.mse_loss(acquisition_est, y_batches[:,plane]) + loss_phase_est + 1E4*loss_image_negative + loss_fluo_est_TV / 500
@@ -167,14 +157,12 @@ def data_train():
 
                 if epoch%100 == 0:
                     print(f'epoch: {epoch} loss: {np.round(loss.item(), 6)}')
-                    # imwrite(f'./{log_dir}/viz/fluo_est_{epoch}.tif', fluo_est[0].detach().cpu().numpy().squeeze())
-                    # imwrite(f'./{log_dir}/viz/phase_aberration_est_{epoch}.tif', phase_aberration_est[0].detach().cpu().numpy().squeeze())
+                    imwrite(f'./{log_dir}/viz/fluo_est_{plane}_{epoch}.tif', fluo_est[0].detach().cpu().numpy().squeeze())
+                    imwrite(f'./{log_dir}/viz/phase_aberration_est_{plane}_{epoch}.tif', phase_aberration_est[0].detach().cpu().numpy().squeeze())
 
         object_est[:,plane]=fluo_est
 
     torch.save({'model_state_dict': net.state_dict()}, os.path.join(log_dir, 'model_init.pt'))
-
-
 
     fig = plt.figure(figsize=(8, 8))
     plt.ion()
@@ -203,7 +191,7 @@ def data_train():
         if epoch % 20 == 0:
             print (f'epoch: {epoch} loss: {np.round(loss.item(),6)}')
 
-    object_est = net.forward_volume()
+    object_est = net.forward_volume_eval()
     for k in range(bpm.n_gammas + 1):
         imwrite(f'./{log_dir}/fluo_intermediate{k}.tif', (object_est[k]).detach().cpu().numpy().squeeze())
 
@@ -236,7 +224,7 @@ def data_train():
 
             for batch in range(model_config['batch_size']):
                 plane = np.random.randint(bpm.Nz)
-                pred, dn_est, fluo_est = net (plane, dn_norm=0)
+                pred, dn_est, fluo_est = net.forward_3D (plane, dn_norm=0)
 
                 # loss_fluo_est_negative = regul_0 * torch.relu(-fluo_est).norm(2) / Npixels
                 # loss_fluo_est_var = -regul_1 * torch.std(fluo_est)**2
@@ -265,7 +253,7 @@ def data_train():
                 dn_est = torch.moveaxis(dn_est, 0, -1)
                 imwrite(f'./{log_dir}/dn_est_{epoch}_{regul_1}_{regul_2}_{regul_3}.tif', dn_est.detach().cpu().numpy().squeeze())
 
-        y_pred = net.forward_volume()
+        y_pred = net.forward_volume_eval()
         for k in range(bpm.n_gammas + 1):
             imwrite(f'./{log_dir}/fluo_final_{k}.tif', (y_pred[k]).detach().cpu().numpy().squeeze())
 
@@ -321,7 +309,7 @@ if __name__ == '__main__':
     print(f'num_polynomials: {num_polynomials}')
     print(f'Niter: {Niter}')
 
-    config_list = ['config_recons_CElegans_opt'] # ['config_CElegans_fluo_aberration'] #['config_recons_CElegans'] # ['config_recons_CElegans'] #, 'config_recons_CElegans_0','config_recons_CElegans_1','config_recons_CElegans_2'] #,'config_recons_CElegans_3','config_recons_CElegans_4','config_recons_CElegans_5','config_recons_CElegans_6','config_recons_CElegans_7','config_recons_CElegans_8'] #['config_grid', 'config_beads', 'config_beads_cropped','config_boats']
+    config_list = ['config_beads_GT'] # ['config_recons_CElegans_opt'] # ['config_CElegans_fluo_aberration'] #['config_recons_CElegans'] # ['config_recons_CElegans'] #, 'config_recons_CElegans_0','config_recons_CElegans_1','config_recons_CElegans_2'] #,'config_recons_CElegans_3','config_recons_CElegans_4','config_recons_CElegans_5','config_recons_CElegans_6','config_recons_CElegans_7','config_recons_CElegans_8'] #['config_grid', 'config_beads', 'config_beads_cropped','config_boats']
 
     regul_list = ["0"] #, "5", "10", "50", "100", "200", "500", "1000", "5000", "10000"]
 
@@ -378,15 +366,38 @@ if __name__ == '__main__':
                     zernike_instance = ZernikePolynomials(pupil, index_convention='ansi', normalization=False)
                     phase_aberration_gt = zernike_instance.get_aberration(ansi_indices, zernike_coefficients_gt)
                     phase_aberration_gt = torch.FloatTensor(phase_aberration_gt).to(DEVICE)
+                    phase_aberration_gt = phase_aberration_gt.repeat(n_gammas + 1, 1, 1)
 
-                    gammas = torch.zeros(n_gammas + 1, 1, image_width, image_width, device=DEVICE, dtype=torch.complex128)
-                    for i in range(n_gammas + 1):
-                       # phase_shift = fftshift ( torch.tensor(zernike_instance.get_aberration(ansi_indices, input_gammas_zernike[i]),device=DEVICE) * pupil.values + phase_aberration_gt)
-                       phase_shift = fftshift(torch.tensor(zernike_instance.get_aberration(ansi_indices, input_gammas_zernike[i]),device=DEVICE) * pupil.values)
-                       gammas[i, :, :, :] = torch.exp(1j * phase_shift)
-                    gammas = gammas.squeeze()
-                    bpm.gammas = gammas
+                    if 'input_gammas_zernike' in model_config and isinstance(model_config['input_gammas_zernike'],
+                                                                             str):  # if input_gammas_zernike exists and is string, load file
+                        model_config['input_gammas_zernike'] = np.loadtxt(model_config['input_gammas_zernike'],
+                                                                          delimiter=',')
+                    if 'input_gammas_zernike' not in model_config:
+                        input_gammas_zernike = []
+                    else:
+                        input_gammas_zernike = conversion_factor_rms_pi * np.array(model_config['input_gammas_zernike'])
 
+
+                    net = StaticNet(zernike=zernike_instance,
+                                    pupil=pupil,
+                                    width=image_width,
+                                    PSF_size=image_width,
+                                    use_FFT=True,
+                                    bsize=model_config['batch_size'],
+                                    phs_layers=model_config['phs_layers'],
+                                    static_phase=model_config['static_phase'],
+                                    n_gammas=n_gammas,
+                                    input_gammas_zernike=input_gammas_zernike,
+                                    b_gamma_optimization=False,
+                                    num_polynomials_gammas=model_config['num_polynomials_gammas'] - 3,
+                                    # NOTE: don't include piston and x/y tilts
+                                    acquisition_data=[],
+                                    optimize_phase_diversities_with_mlp=False,
+                                    z_mode=bpm.Nz,
+                                    bpm=bpm,
+                                    device=device)
+
+                    net = net.to(DEVICE)
 
                     if 'y_batches.pt' in model_config['input_fluo_simulated_acquisition']:
 
