@@ -24,6 +24,8 @@ import yaml # need to install pyyaml
 import datetime
 from torch.fft import fft2, ifft2, fftshift, ifftshift
 from networks_3D import *
+from modules.plots import create_epoch_plot
+import imageio.v2 as imageio
 
 def TV(params):
     if len(params.shape) == 2:
@@ -128,9 +130,67 @@ def data_train():
 
     object_est = torch.zeros((bpm.n_gammas + 1,bpm.Nz,bpm.image_width,bpm.image_width),device=device)
 
+
+
+    plane=29
+
+    object_gt_ = object_gt[:,plane]
+
+
+    optimizer_object = torch.optim.Adam(net.g_im.parameters(), lr=model_config['init_lr'])  # Object optimizer
+    optimizer_phase = torch.optim.Adam(net.g_g.parameters(),lr=model_config['init_lr'])  # Phase aberration optimizer (Zernike + MLP)
+
+    ### Training loop
+
+    total_it = 0
+
+    loss0_list = []
+    loss1_list = []  # Iest - I_gt
+    loss2_list = []  # Iest - acquisition
+    loss3_list = []  # I_gt - acquisition
+
+    for epoch in range(model_config['num_epochs']):
+
+        optimizer_object.zero_grad();
+        optimizer_phase.zero_grad();
+
+        acquisition_est, acquisition_gt, gammas, _kernel, total_aberration_est, phase_aberration_est, object_est, gammas_raw = net(y_batches[:,plane], phase_aberration_gt)
+
+        acquisition_gt = y_batches[:,plane]
+
+        loss_phase_est = torch.relu((torch.abs(phase_aberration_est) - 4 * np.pi)).norm(2)
+        loss_image_negative = torch.relu(-object_est[0]).norm(2)
+
+        loss = regul_0 * F.mse_loss(acquisition_est,acquisition_gt) + regul_3 * loss_phase_est + regul_4 * loss_image_negative
+
+        loss.backward()
+
+        optimizer_object.step()
+        optimizer_phase.step()
+
+        loss0_list.append(loss.item())
+        loss1_list.append(F.mse_loss(object_est[0], object_gt_[0]).item())
+        loss2_list.append(F.mse_loss(object_est[0], acquisition_gt[0]).item())
+        loss3_list.append(F.mse_loss(object_gt_[0], acquisition_gt[0]).item())
+
+        print(f'epoch {epoch } {loss.item():.4e}')
+
+        if epoch % 5 == 0:
+            # Create plot (call function)
+            create_epoch_plot(epoch, object_gt_, object_est, acquisition_gt, acquisition_est,
+                              phase_aberration_gt, phase_aberration_est, gammas, gammas_raw,
+                              loss0_list, loss1_list, loss2_list, loss3_list, n_gammas, f'{log_dir}/viz/')
+
+
+
+
+
     for plane in range(29,18,-1):
 
         print(f'plane: {plane}')
+
+
+
 
         optimizer_fluo_3D = torch.optim.Adam(net.g_fluo_3D.parameters(), lr=0.01)
         optimizer_phase = torch.optim.Adam(net.g_g.parameters(), lr=0.01)  # Phase aberration optimizer (Zernike + MLP)
@@ -309,8 +369,7 @@ if __name__ == '__main__':
     print(f'num_polynomials: {num_polynomials}')
     print(f'Niter: {Niter}')
 
-    config_list = ['config_beads_GT'] # ['config_recons_CElegans_opt'] # ['config_CElegans_fluo_aberration'] #['config_recons_CElegans'] # ['config_recons_CElegans'] #, 'config_recons_CElegans_0','config_recons_CElegans_1','config_recons_CElegans_2'] #,'config_recons_CElegans_3','config_recons_CElegans_4','config_recons_CElegans_5','config_recons_CElegans_6','config_recons_CElegans_7','config_recons_CElegans_8'] #['config_grid', 'config_beads', 'config_beads_cropped','config_boats']
-
+    config_list = ['config_recons_from_beads_GT']
     regul_list = ["0"] #, "5", "10", "50", "100", "200", "500", "1000", "5000", "10000"]
 
     for regul_ in regul_list:
@@ -360,6 +419,17 @@ if __name__ == '__main__':
                     w_num, w_unit = model_config['wavelength'].split()
                     wavelength = float(w_num) * u.Unit(w_unit)
                     image_width=bpm.image_width
+
+                    # Load data - ground truth object
+                    if 'acquisition_GT_data' in model_config:
+                        object_gt = imageio.imread(model_config['acquisition_GT_data'])
+                        object_gt = object_gt / np.max(object_gt)
+                        object_gt = torch.FloatTensor(object_gt).to(device)
+                        if object_gt.ndim == 2:
+                            object_gt = object_gt.repeat(bpm.Nz, 1, 1)
+                        object_gt = object_gt.repeat(n_gammas + 1, 1, 1,1)
+                    else:
+                        object_gt = torch.zeros((n_gammas + 1, bpm.Nz, bpm.image_width, bpm.image_widt))
 
                     pupil = Pupil(numerical_aperture=numerical_aperture, wavelength=wavelength, pixel_size=pixel_size,
                                   size_fourier_space=(image_width, image_width), device=DEVICE)
