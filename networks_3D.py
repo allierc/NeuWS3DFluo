@@ -161,7 +161,6 @@ class G_Tensor3D(nn.Module):
         w, h = self.x_dim, self.y_dim
         out = out.view(b, 1, w, h)
         return out
-
 class G_Model3D(nn.Module):
     def __init__(
         self,
@@ -314,7 +313,6 @@ class Embedding(nn.Module):
                 out += [func(freq * x)]
 
         return torch.cat(out, -1)
-
 class MLP(nn.Module):
     def __init__(self, in_dim, hidden_dim, num_layers):
         super(MLP, self).__init__()
