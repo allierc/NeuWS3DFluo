@@ -342,7 +342,7 @@ if __name__ == '__main__':
     # config_list = ['config_test']
     # config_list = ['config_recons_test']
     # config_list = ['config_CElegans_RI']
-    config_list = ['config_recons_CElegans_RI']
+    config_list = ['config_beads_PSF']
 
 
     regul_list = ["0"] #, "5", "10", "50", "100", "200", "500", "1000", "5000", "10000"]
@@ -413,8 +413,7 @@ if __name__ == '__main__':
                     phase_aberration_gt = torch.FloatTensor(phase_aberration_gt).to(DEVICE)
                     phase_aberration_gt = phase_aberration_gt.repeat(n_gammas + 1, 1, 1)
 
-                    if 'input_gammas_zernike' in model_config and isinstance(model_config['input_gammas_zernike'],
-                                                                             str):  # if input_gammas_zernike exists and is string, load file
+                    if 'input_gammas_zernike' in model_config and isinstance(model_config['input_gammas_zernike'],str):  # if input_gammas_zernike exists and is string, load file
                         model_config['input_gammas_zernike'] = np.loadtxt(model_config['input_gammas_zernike'],
                                                                           delimiter=',')
                     if 'input_gammas_zernike' not in model_config:

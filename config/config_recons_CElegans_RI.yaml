@@ -1,0 +1,51 @@
+description: 'Generate z stack of fluorescence acquisitions'
+
+nm: 1.33
+numerical_aperture: 1.0556
+pixel_size: 0.1154 um
+dz: 1 um
+wavelength: 0.5320 um
+volume: [512, 512, 30]
+padding: False
+device: 'cuda:0'
+bAber: False
+bFit: False
+num_feats: 4
+out_path: "./Recons3D/"
+fluo_path: "./Pics_input/Fluo_GT_CElegans_512.tif"
+dn_path: "./Pics_input/dn_CElegans_GT_512_zeros.tif"
+dn_factor: 4
+
+num_epochs_phase_diversity: 500
+num_epochs: 1000
+batch_size: 1
+init_lr: 0.01
+final_lr: 0.001
+static_phase: true
+max_intensity: 0
+im_prefix: 'SLM_raw'
+zero_freq: -1
+phs_layers: 2
+do_freeze_phase_diversity_optimization: true
+epoch_freeze_phase_diversities: 200
+n_gammas: 4
+random_seed: 25
+b_gamma_optimization: true
+optimize_phase_diversities_with_mlp: false
+regul_0: 1E7
+regul_1: 100
+regul_2: 1E7
+regul_3: 1
+regul_4: 1E4
+regul_5: 1E8
+input_gammas_zernike:
+  - [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  - [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  - [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  - [0, 0, -1.25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  - [-1.25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] # given in units of microns
+input_gammas_zernike_grad: false
+zernike_coefficients_gt: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] # TODO: check if unit is really microns!
+num_polynomials_gammas: 21 
+input_fluo_simulated_acquisition: "./log/config_CElegans_RI/2023-12-01_16-42-43/y_batches.pt"
+acquisition_GT_data: "./Pics_input/Fluo_GT_CElegans_512.tif"
